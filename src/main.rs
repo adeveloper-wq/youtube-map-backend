@@ -5,20 +5,25 @@ use dotenv::dotenv;
 use mongodb::{options::ClientOptions, Client};
 use std::env;
 use api_service::ApiService;
+use youtube_api::YoutubeApi;
+
+extern crate dotenv;
 
 // External modules reference
 mod api_router;
 mod api_service;
+mod youtube_api;
 
 // Api Service constructor
 pub struct ServiceManager {
     api: ApiService,
+    youtube_api: YoutubeApi
 }
 
 // Api Service Implementation
 impl ServiceManager {
-    pub fn new(api: ApiService) -> Self {
-        ServiceManager { api }
+    pub fn new(api: ApiService, youtube_api: YoutubeApi) -> Self {
+        ServiceManager { api, youtube_api }
     }
 }
 
@@ -54,10 +59,15 @@ async fn main() -> std::io::Result<()> {
     // Gte the server URL
     let server_url = env::var("SERVER_URL").expect("SERVER URL is not in .env file");
 
+    // get youtube api key from env variable
+    dotenv().ok();
+    let youtube_api_key: String = env::var("YOUTUBE_API_KEY").expect("YOUTUBE_API_KEY must be set");
+
     // Start the server
     HttpServer::new(move || {
         let channel_service_worker = ApiService::new(channel_collection.clone());
-        let service_manager = ServiceManager::new(channel_service_worker);
+        let youtube_api = YoutubeApi::new(youtube_api_key.to_string());
+        let service_manager = ServiceManager::new(channel_service_worker, youtube_api);
 
         // cors
 /*         let cors_middleware = Cors::new()

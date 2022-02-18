@@ -9,12 +9,72 @@ extern crate serde;
 extern crate serde_json;
 
 // Estructure data for DB
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct YoutubeTopic {
+    pub topic_id: String,
+    pub topic_url: String,
+}
+
+impl YoutubeTopic {
+    pub fn new(topic_id: String, topic_url: String) -> YoutubeTopic {
+        YoutubeTopic {
+            topic_id,
+            topic_url,
+        }
+    }
+}
+
+// Estructure data for DB
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Channel {
     pub channel_id: String,
     pub channel_name: String,
+    pub channel_description: String,
     pub channel_profil_image: String,
     pub channel_banner_image: String,
+    pub channel_country: String,
+    pub channel_uploads_playlist_id: String,
+    pub channel_subscriber_count: String,
+    /* pub channel_topics: Vec<YoutubeTopic>, */
+    pub channel_keywords: String,
+    pub channel_trailer: String,
+    pub made_for_kids: String,
+}
+
+impl Channel {
+    pub fn new(
+        channel_id: String,
+        channel_name: String,
+        channel_description: String,
+        channel_profil_image: String,
+        channel_banner_image: String,
+        channel_country: String,
+        channel_uploads_playlist_id: String,
+        channel_subscriber_count: String,
+        /* channel_topics: Vec<YoutubeTopic>, */
+        channel_keywords: String,
+        channel_trailer: String,
+        made_for_kids: String,
+    ) -> Channel {
+        Channel {
+            channel_id,
+            channel_name,
+            channel_description,
+            channel_profil_image,
+            channel_banner_image,
+            channel_country,
+            channel_uploads_playlist_id,
+            channel_subscriber_count,
+            /* channel_topics, */
+            channel_keywords,
+            channel_trailer,
+            made_for_kids,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AddChannelRequestBody {
     pub channel_url: String,
 }
 
@@ -29,16 +89,31 @@ fn data_to_document(data: &Channel) -> Document {
     let Channel {
         channel_id,
         channel_name,
+        channel_description,
         channel_profil_image,
         channel_banner_image,
-        channel_url,
+        channel_country,
+        channel_uploads_playlist_id,
+        channel_subscriber_count,
+        /* channel_topics, */
+        channel_keywords,
+        channel_trailer,
+        made_for_kids,
     } = data;
     doc! {
         "channel_id": channel_id,
         "channel_name": channel_name,
+        "channel_description": channel_description,
         "channel_profil_image": channel_profil_image,
         "channel_banner_image": channel_banner_image,
-        "channel_url": channel_url,
+        "channel_country": channel_country,
+        "channel_uploads_playlist_id": channel_uploads_playlist_id,
+        "channel_subscriber_count": channel_subscriber_count,
+        // https://users.rust-lang.org/t/saving-nested-struct-with-rust-mongodb-returns-error-the-trait-from-t-is-not-implemented-for-bson/58188
+        /* "channel_topics": bson::to_bson(&channel_topics).unwrap(), */
+        "channel_keywords": channel_keywords,
+        "channel_trailer": channel_trailer,
+        "made_for_kids": made_for_kids,
     }
 }
 
