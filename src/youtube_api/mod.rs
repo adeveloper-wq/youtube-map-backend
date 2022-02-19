@@ -1,14 +1,16 @@
 // External imports
+use async_recursion::async_recursion;
 use bson::{doc, Document};
 use futures::StreamExt;
 use reqwest;
 use reqwest::header::ACCEPT;
 use reqwest::header::CONTENT_TYPE;
 use serde::{Deserialize, Serialize};
-use url::{ParseError, Url};
 use serde_json;
+use url::{ParseError, Url};
 
 use crate::api_service::Channel;
+use crate::api_service::YoutubeTopic;
 // External constructors
 extern crate serde;
 
@@ -19,6 +21,17 @@ pub struct YoutubeApi {
 impl YoutubeApi {
     pub fn new(api_key: String) -> YoutubeApi {
         YoutubeApi { api_key }
+    }
+
+    fn rem_first_and_last(value: &str) -> &str {
+        if value != "null" && value.ends_with('"') && value.starts_with('"') {
+            let mut chars = value.chars();
+            chars.next();
+            chars.next_back();
+            chars.as_str()
+        } else {
+            return value;
+        }
     }
 
     pub fn check_url(&self, channel_url: &String) -> Result<bool, ParseError> {
@@ -53,7 +66,7 @@ impl YoutubeApi {
         // https://blog.logrocket.com/making-http-requests-rust-reqwest/
 
         let response: Result<String, reqwest::Error>;
-        println!("channel_identifier_is_id {}", channel_identifier_is_id);
+
         if channel_identifier_is_id {
             response = client
                 .get("https://youtube.googleapis.com/youtube/v3/channels")
@@ -87,24 +100,178 @@ impl YoutubeApi {
         }
         match response {
             Ok(response) => {
-                let parsedResponse: serde_json::Value = serde_json::from_str(&response.to_string()).unwrap();
+                let parsed_response: serde_json::Value =
+                    serde_json::from_str(&response.to_string()).unwrap();
 
-                println!("parsedResponse {}", parsedResponse);
+                let subscriber_count_string = parsed_response["items"][0]["statistics"]
+                    ["subscriberCount"]
+                    .to_string()
+                    .replace('"', "");
+                let subscriber_count: u32;
+                if subscriber_count_string != "null" {
+                    subscriber_count = subscriber_count_string.parse::<u32>().unwrap();
+                } else {
+                    subscriber_count = 0;
+                }
+
+                let mut topic_vector: Vec<YoutubeTopic> = Vec::new();
+                let mut i = 0;
+                while i < parsed_response["items"][0]["topicDetails"]["topicIds"]
+                    .as_array()
+                    .unwrap()
+                    .len()
+                {
+                    topic_vector.push(YoutubeTopic::new(
+                        parsed_response["items"][0]["topicDetails"]["topicIds"][i].to_string(),
+                        parsed_response["items"][0]["topicDetails"]["topicCategories"][i]
+                            .to_string(),
+                    ));
+                    i = i + 1;
+                }
+
+                println!(
+                    "topicDetails{:?}",
+                    parsed_response["items"][0]["topicDetails"]
+                );
 
                 let channel = Channel::new(
-                    parsedResponse["items"][0]["id"].to_string(),
-                    parsedResponse["items"][0]["snippet"]["title"].to_string(),
-                    parsedResponse["items"][0]["snippet"]["description"].to_string(),
-                    parsedResponse["items"][0]["snippet"]["thumbnails"]["default"]["url"].to_string(),
-                    parsedResponse["items"][0]["brandingSettings"]["image"]["bannerExternalUrl"].to_string(),
-                    parsedResponse["items"][0]["snippet"]["country"].to_string(),
-                    parsedResponse["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"].to_string(),
-                    parsedResponse["items"][0]["statistics"]["subscriberCount"].to_string(),
-                    parsedResponse["items"][0]["brandingSettings"]["channel"]["keywords"].to_string(),
-                    parsedResponse["items"][0]["brandingSettings"]["channel"]["unsubscribedTrailer"].to_string(),
-                    parsedResponse["items"][0]["status"]["madeForKids"].to_string(),
+                    YoutubeApi::rem_first_and_last(&parsed_response["items"][0]["id"].to_string())
+                        .to_string(),
+                    YoutubeApi::rem_first_and_last(
+                        &parsed_response["items"][0]["snippet"]["title"].to_string(),
+                    )
+                    .to_string(),
+                    YoutubeApi::rem_first_and_last(
+                        &parsed_response["items"][0]["snippet"]["description"].to_string(),
+                    )
+                    .to_string(),
+                    YoutubeApi::rem_first_and_last(
+                        &parsed_response["items"][0]["snippet"]["thumbnails"]["default"]["url"]
+                            .to_string(),
+                    )
+                    .to_string(),
+                    YoutubeApi::rem_first_and_last(
+                        &parsed_response["items"][0]["brandingSettings"]["image"]
+                            ["bannerExternalUrl"]
+                            .to_string(),
+                    )
+                    .to_string(),
+                    YoutubeApi::rem_first_and_last(
+                        &parsed_response["items"][0]["snippet"]["country"].to_string(),
+                    )
+                    .to_string(),
+                    YoutubeApi::rem_first_and_last(
+                        &parsed_response["items"][0]["contentDetails"]["relatedPlaylists"]
+                            ["uploads"]
+                            .to_string(),
+                    )
+                    .to_string(),
+                    subscriber_count,
+                    topic_vector,
+                    YoutubeApi::rem_first_and_last(
+                        &parsed_response["items"][0]["brandingSettings"]["channel"]["keywords"]
+                            .to_string(),
+                    )
+                    .to_string(),
+                    YoutubeApi::rem_first_and_last(
+                        &parsed_response["items"][0]["brandingSettings"]["channel"]
+                            ["unsubscribedTrailer"]
+                            .to_string(),
+                    )
+                    .to_string(),
+                    parsed_response["items"][0]["status"]["madeForKids"]
+                        .to_string()
+                        .parse::<bool>()
+                        .unwrap(),
                 );
                 return Ok(channel);
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        }
+    }
+
+    pub async fn get_videos(
+        playlist_id: &String,
+        video_amount: &u16,
+        client: &reqwest::Client,
+    ) -> bool {
+        return true;
+    }
+
+    #[async_recursion]
+    pub async fn get_playlist_videos(
+        &self,
+        playlist_id: &String,
+        page_token: String,
+        mut open_video_amount: u16,
+        client: &reqwest::Client,
+    ) -> Result<Vec<String>, reqwest::Error> {
+        let mut max_results: u16 = 50;
+        if open_video_amount <= max_results {
+            max_results = open_video_amount;
+            open_video_amount = 0;
+        } else if open_video_amount > max_results {
+            open_video_amount = open_video_amount - max_results;
+        }
+        let response = client
+            .get("https://youtube.googleapis.com/youtube/v3/playlistItems")
+            .header(CONTENT_TYPE, "application/json")
+            .header(ACCEPT, "application/json")
+            .query(&[
+                ("part", "contentDetails".to_string()),
+                ("key", self.api_key.to_string()),
+                ("playlistId", playlist_id.to_string()),
+                (if page_token != "FIRST_PAGE" {
+                    ("pageToken", page_token)
+                } else {
+                    ("maxResults", max_results.to_string())
+                }),
+                ("maxResults", max_results.to_string()),
+            ])
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await;
+
+        match response {
+            Ok(response) => {
+                let parsed_response: serde_json::Value =
+                    serde_json::from_str(&response.to_string()).unwrap();
+
+                let mut video_ids: Vec<String> = Vec::new();
+
+                let mut i = 0;
+                while i < parsed_response["items"].as_array().unwrap().len() {
+                    video_ids
+                        .push(parsed_response["items"][i]["contentDetails"]["videoId"].to_string());
+                    i = i + 1;
+                }
+
+                if open_video_amount == 0 {
+                    Ok(video_ids)
+                } else {
+                    let further_request = YoutubeApi::get_playlist_videos(
+                        self,
+                        &playlist_id,
+                        parsed_response["nextPageToken"].to_string(),
+                        open_video_amount,
+                        &client,
+                    )
+                    .await;
+
+                    match further_request {
+                        Ok(mut response2) => {
+                            video_ids.append(&mut response2);
+                            Ok(video_ids)
+                        }
+                        Err(e2) => {
+                            return Err(e2);
+                        }
+                    }
+                }
             }
             Err(e) => {
                 return Err(e);

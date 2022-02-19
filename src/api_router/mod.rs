@@ -50,11 +50,11 @@ async fn add_user(
                     .await;
                 let result = web::block(move || action).await;
                 match result {
-                    Ok(resultChannel) => {
-                        let action = app_data.service_manager.api.create(&resultChannel.unwrap()).await;
+                    Ok(result_channel) => {
+                        let action = app_data.service_manager.api.create(&result_channel.unwrap()).await;
                         let result = web::block(move || action).await;
                         match result {
-                            Ok(resultMongoDB) => HttpResponse::Ok().json(resultMongoDB.unwrap()),
+                            Ok(result_mongodb) => HttpResponse::Ok().json(result_mongodb.unwrap()),
                             Err(e) => {
                                 println!("Error while getting, {:?}", e);
                                 HttpResponse::InternalServerError().finish()
@@ -71,6 +71,7 @@ async fn add_user(
             }
         }
         Err(e) => {
+            println!("Error while parsing, {:?}", e);
             HttpResponse::BadRequest().finish()
         },
     }

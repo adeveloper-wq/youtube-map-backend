@@ -8,7 +8,22 @@ use serde::{Deserialize, Serialize};
 extern crate serde;
 extern crate serde_json;
 
-// Estructure data for DB
+/* #[derive(Debug, Serialize, Deserialize)]
+pub struct Video {
+    pub video_id: String,
+    pub video_titel: String,
+    pub video_description: String
+}
+
+impl Video {
+    pub fn new(topic_id: String, topic_url: String) -> Video {
+        Video {
+            topic_id,
+            topic_url,
+        }
+    }
+} */
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct YoutubeTopic {
     pub topic_id: String,
@@ -34,11 +49,11 @@ pub struct Channel {
     pub channel_banner_image: String,
     pub channel_country: String,
     pub channel_uploads_playlist_id: String,
-    pub channel_subscriber_count: String,
-    /* pub channel_topics: Vec<YoutubeTopic>, */
+    pub channel_subscriber_count: u32,
+    pub channel_topics: Vec<YoutubeTopic>,
     pub channel_keywords: String,
     pub channel_trailer: String,
-    pub made_for_kids: String,
+    pub made_for_kids: bool,
 }
 
 impl Channel {
@@ -50,11 +65,11 @@ impl Channel {
         channel_banner_image: String,
         channel_country: String,
         channel_uploads_playlist_id: String,
-        channel_subscriber_count: String,
-        /* channel_topics: Vec<YoutubeTopic>, */
+        channel_subscriber_count: u32,
+        channel_topics: Vec<YoutubeTopic>,
         channel_keywords: String,
         channel_trailer: String,
-        made_for_kids: String,
+        made_for_kids: bool,
     ) -> Channel {
         Channel {
             channel_id,
@@ -65,7 +80,7 @@ impl Channel {
             channel_country,
             channel_uploads_playlist_id,
             channel_subscriber_count,
-            /* channel_topics, */
+            channel_topics,
             channel_keywords,
             channel_trailer,
             made_for_kids,
@@ -95,7 +110,7 @@ fn data_to_document(data: &Channel) -> Document {
         channel_country,
         channel_uploads_playlist_id,
         channel_subscriber_count,
-        /* channel_topics, */
+        channel_topics,
         channel_keywords,
         channel_trailer,
         made_for_kids,
@@ -110,7 +125,7 @@ fn data_to_document(data: &Channel) -> Document {
         "channel_uploads_playlist_id": channel_uploads_playlist_id,
         "channel_subscriber_count": channel_subscriber_count,
         // https://users.rust-lang.org/t/saving-nested-struct-with-rust-mongodb-returns-error-the-trait-from-t-is-not-implemented-for-bson/58188
-        /* "channel_topics": bson::to_bson(&channel_topics).unwrap(), */
+        "channel_topics": bson::to_bson(&channel_topics).unwrap(),
         "channel_keywords": channel_keywords,
         "channel_trailer": channel_trailer,
         "made_for_kids": made_for_kids,
@@ -151,7 +166,7 @@ impl ApiService {
     pub async fn get_json(&self) -> Result<std::vec::Vec<bson::Document>, mongodb::error::Error> {
         let mut cursor = match self.collection.find(None, None).await {
             Ok(cursor) => cursor,
-            Err(_Error) => return Err(_Error),
+            Err(error) => return Err(error),
         };
         let mut docs: Vec<bson::Document> = Vec::new();
         while let Some(doc) = cursor.next().await {
@@ -171,7 +186,7 @@ impl ApiService {
             .await
         {
             Ok(cursor) => cursor,
-            Err(_Error) => return Err(_Error),
+            Err(error) => return Err(error),
         };
         let mut docs: Vec<bson::Document> = Vec::new();
         while let Some(doc) = cursor.next().await {
