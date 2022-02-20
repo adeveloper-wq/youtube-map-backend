@@ -4,27 +4,55 @@ use futures::StreamExt;
 use mongodb::results::{DeleteResult, InsertOneResult, UpdateResult};
 use mongodb::{error::Error, Collection};
 use serde::{Deserialize, Serialize};
+
+use crate::youtube_api::YoutubeApi;
 // External constructors
 extern crate serde;
 extern crate serde_json;
 
-/* #[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Video {
     pub video_id: String,
     pub video_titel: String,
-    pub video_description: String
+    pub video_description: String,
+    pub video_published_at: String,
+    pub video_category_id: String,
+    pub video_default_language: String,
+    pub video_default_audio_language: String,
+    pub video_topics: Vec<YoutubeTopic>,
+    pub video_location: Location,
+    pub made_for_kids: bool,
 }
 
 impl Video {
-    pub fn new(topic_id: String, topic_url: String) -> Video {
+    pub fn new(
+        video_id: String,
+        video_titel: String,
+        video_description: String,
+        video_published_at: String,
+        video_category_id: String,
+        video_default_language: String,
+        video_default_audio_language: String,
+        video_topics: Vec<YoutubeTopic>,
+        video_location: Location,
+        made_for_kids: bool,
+    ) -> Video {
         Video {
-            topic_id,
-            topic_url,
+            video_id,
+            video_titel,
+            video_description,
+            video_published_at,
+            video_category_id,
+            video_default_language,
+            video_default_audio_language,
+            video_topics,
+            video_location,
+            made_for_kids,
         }
     }
-} */
+}
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct YoutubeTopic {
     pub topic_id: String,
     pub topic_url: String,
@@ -39,8 +67,25 @@ impl YoutubeTopic {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Location {
+    pub latitude: String,
+    pub longitude: String,
+    pub description: String,
+}
+
+impl Location {
+    pub fn new(latitude: String, longitude: String, description: String) -> Location {
+        Location {
+            latitude,
+            longitude,
+            description,
+        }
+    }
+}
+
 // Estructure data for DB
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Channel {
     pub channel_id: String,
     pub channel_name: String,
@@ -54,6 +99,8 @@ pub struct Channel {
     pub channel_keywords: String,
     pub channel_trailer: String,
     pub made_for_kids: bool,
+    pub status: String,
+    pub videos: Vec<Video>,
 }
 
 impl Channel {
@@ -70,6 +117,8 @@ impl Channel {
         channel_keywords: String,
         channel_trailer: String,
         made_for_kids: bool,
+        status: String,
+        videos: Vec<Video>,
     ) -> Channel {
         Channel {
             channel_id,
@@ -84,6 +133,8 @@ impl Channel {
             channel_keywords,
             channel_trailer,
             made_for_kids,
+            status,
+            videos,
         }
     }
 }
@@ -91,6 +142,7 @@ impl Channel {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AddChannelRequestBody {
     pub channel_url: String,
+    pub video_amount: u16,
 }
 
 // Reference colection clone
@@ -114,6 +166,8 @@ fn data_to_document(data: &Channel) -> Document {
         channel_keywords,
         channel_trailer,
         made_for_kids,
+        status,
+        videos,
     } = data;
     doc! {
         "channel_id": channel_id,
@@ -129,6 +183,8 @@ fn data_to_document(data: &Channel) -> Document {
         "channel_keywords": channel_keywords,
         "channel_trailer": channel_trailer,
         "made_for_kids": made_for_kids,
+        "status": status,
+        "videos": bson::to_bson(&videos).unwrap(),
     }
 }
 
@@ -161,6 +217,22 @@ impl ApiService {
             .delete_one(doc! { "channel_id": _channel_id }, None)
             .await
     } */
+
+    // Update videos of channel
+    pub async fn update(
+        &self,
+        _videos: &Vec<Video>,
+        _channel_id: &String,
+    ) -> Result<UpdateResult, Error> {
+        
+        self.collection
+            .update_one(
+                doc! { "channel_id": _channel_id },    
+                doc! { "$set": { "videos": bson::to_bson(_videos).unwrap(), "status": "FINISHED" }},
+                None,
+            )
+            .await
+    }
 
     // Get all documents
     pub async fn get_json(&self) -> Result<std::vec::Vec<bson::Document>, mongodb::error::Error> {
