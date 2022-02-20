@@ -219,7 +219,7 @@ impl ApiService {
     } */
 
     // Update videos of channel
-    pub async fn update(
+    /* pub async fn update(
         &self,
         _videos: &Vec<Video>,
         _channel_id: &String,
@@ -232,7 +232,7 @@ impl ApiService {
                 None,
             )
             .await
-    }
+    } */
 
     // Get all documents
     pub async fn get_json(&self) -> Result<std::vec::Vec<bson::Document>, mongodb::error::Error> {

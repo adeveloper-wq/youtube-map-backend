@@ -52,47 +52,40 @@ async fn add_user(
                     .get_channel_data(&channel_url.to_string(), &client)
                     .await;
                 let result = web::block(move || action).await;
-                match &result {
+                match result {
                     Ok(result_channel) => {
-
-                        let action = app_data
+                        let channel = result_channel.as_ref().unwrap();
+                        let result_get_all_videos = app_data
                             .service_manager
-                            .api
-                            .create(&result_channel.as_ref().unwrap())
+                            .youtube_api
+                            .get_playlist_videos(
+                                &channel.channel_uploads_playlist_id,
+                                "FIRST_PAGE".to_string(),
+                                video_amount,
+                                &client,
+                            )
                             .await;
-                        let result = web::block(move || action).await;
-                        match &result {
-                            Ok(result_mongodb) => {
-                                let channel = result_channel.as_ref().unwrap();
-                                let result_get_all_videos = app_data.service_manager.youtube_api.get_playlist_videos(
-                                    &channel.channel_uploads_playlist_id,
-                                    "FIRST_PAGE".to_string(),
-                                    video_amount,
-                                    &client
-                                ).await;
 
-                                match result_get_all_videos {
-                                    Ok(result_get_all_videos) => {
-                                        let result_mongodb_update = app_data.service_manager.api.update(&result_get_all_videos, &channel.channel_id).await;
-                                        match result_mongodb_update {
-                                            Ok(result_mongodb_update) => {
-                                                return HttpResponse::Ok().json(result_mongodb_update);
-                                            }
-                                            Err(e) => {
-                                                println!("Error while getting, {:?}", e);
-                                                return HttpResponse::InternalServerError().finish()
-                                            }
-                                        }
+                        match result_get_all_videos {
+                            Ok(result_get_all_videos) => {
+                                let mut channel = result_channel.unwrap();
+                                channel.videos = result_get_all_videos;
+                                let action = app_data.service_manager.api.create(&channel).await;
+                                let result_mongodb_update = web::block(move || action).await;
+                                match result_mongodb_update {
+                                    Ok(result_mongodb_update) => {
+                                        return HttpResponse::Ok()
+                                            .json(&result_mongodb_update.unwrap());
                                     }
                                     Err(e) => {
                                         println!("Error while getting, {:?}", e);
-                                        return HttpResponse::InternalServerError().finish()
+                                        return HttpResponse::InternalServerError().finish();
                                     }
                                 }
                             }
                             Err(e) => {
                                 println!("Error while getting, {:?}", e);
-                                HttpResponse::InternalServerError().finish()
+                                return HttpResponse::InternalServerError().finish();
                             }
                         }
                     }
