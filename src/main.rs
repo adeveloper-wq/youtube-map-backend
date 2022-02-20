@@ -70,16 +70,15 @@ async fn main() -> std::io::Result<()> {
         let service_manager = ServiceManager::new(channel_service_worker, youtube_api);
 
         // cors
-/*         let cors_middleware = Cors::new()
+        /* let cors_middleware = Cors::default()
             .allowed_methods(vec!["GET", "POST", "DELETE", "PUT"])
             .allowed_headers(vec![http::header::AUTHORIZATION, http::header::ACCEPT])
             .allowed_header(http::header::CONTENT_TYPE)
-            .max_age(3600)
-            .finish(); */
-
+            .max_age(3600); */
+        let cors_middleware = Cors::permissive();
         // Init http server
         App::new()
-            /* .wrap(cors_middleware) */
+            .wrap(cors_middleware)
             .wrap(middleware::Logger::default())
             .data(AppState { service_manager })
             .configure(api_router::init)
