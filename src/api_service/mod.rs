@@ -101,6 +101,7 @@ pub struct Channel {
     pub made_for_kids: bool,
     pub status: String,
     pub videos: Vec<Video>,
+    pub map_marker_hex_color: String,
 }
 
 impl Channel {
@@ -119,6 +120,7 @@ impl Channel {
         made_for_kids: bool,
         status: String,
         videos: Vec<Video>,
+        map_marker_hex_color: String,
     ) -> Channel {
         Channel {
             channel_id,
@@ -135,6 +137,7 @@ impl Channel {
             made_for_kids,
             status,
             videos,
+            map_marker_hex_color
         }
     }
 }
@@ -168,6 +171,7 @@ fn data_to_document(data: &Channel) -> Document {
         made_for_kids,
         status,
         videos,
+        map_marker_hex_color
     } = data;
     doc! {
         "channel_id": channel_id,
@@ -185,6 +189,7 @@ fn data_to_document(data: &Channel) -> Document {
         "made_for_kids": made_for_kids,
         "status": status,
         "videos": bson::to_bson(&videos).unwrap(),
+        "map_marker_hex_color": map_marker_hex_color
     }
 }
 

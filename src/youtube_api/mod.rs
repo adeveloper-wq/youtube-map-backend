@@ -8,6 +8,7 @@ use reqwest::header::CONTENT_TYPE;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use url::{ParseError, Url};
+use rand::{thread_rng, Rng};
 
 use crate::api_service::Channel;
 use crate::api_service::Location;
@@ -34,6 +35,26 @@ impl YoutubeApi {
         } else {
             return value;
         }
+    }
+
+    fn get_random_hex() -> String {
+        let mut rng = thread_rng();
+        let mut num1: u8 = rng.gen_range(0..=255);
+        let mut num2: u8 = rng.gen_range(0..=255);
+        let mut num3: u8 = rng.gen_range(0..=255);
+
+        while !(num1 > 145 || num2 > 145 || num3 > 145) {
+            num1 = rng.gen_range(0..=255);
+            num2 = rng.gen_range(0..=255);
+            num3 = rng.gen_range(0..=255);
+        }
+
+        let string1 = format!("{:X}", num1);
+        let string2 = format!("{:X}", num2);
+        let string3 = format!("{:X}", num3);
+        let hex_string = "#".to_string() + &string1 + &string2 + &string3;
+
+        return hex_string;
     }
 
     pub fn check_url(&self, channel_url: &String) -> Result<bool, ParseError> {
@@ -188,7 +209,8 @@ impl YoutubeApi {
                         .parse::<bool>()
                         .unwrap(),
                     "LOADING".to_string(),
-                    Vec::new()
+                    Vec::new(),
+                    YoutubeApi::get_random_hex()
                 );
                 return Ok(channel);
             }
@@ -197,33 +219,6 @@ impl YoutubeApi {
             }
         }
     }
-
-    /* pub async fn get_videos(
-        &self,
-        playlist_id: &String,
-        video_amount: u16,
-        client: &reqwest::Client,
-    ) -> bool {
-        let videos_ids_result = YoutubeApi::get_playlist_videos(
-            &self,
-            playlist_id,
-            "FIRST_PAGE".to_string(),
-            video_amount,
-            client,
-        )
-        .await;
-
-        match videos_ids {
-            Ok(video_ids) => for video_id in video_ids.into_iter() {},
-            Err(e) => {}
-        }
-
-        return true;
-    } */
-
-    /* pub async fn get_video(&self, video_id: &String) -> Result<Video, reqwest::Error> {
-
-    } */
 
     #[async_recursion]
     pub async fn get_playlist_videos(
