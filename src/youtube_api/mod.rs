@@ -1,14 +1,17 @@
 // External imports
 use async_recursion::async_recursion;
+use bson::DateTime;
 use bson::{doc, Document};
+use chrono::prelude::*;
 use futures::StreamExt;
+use rand::{thread_rng, Rng};
 use reqwest;
 use reqwest::header::ACCEPT;
 use reqwest::header::CONTENT_TYPE;
 use serde::{Deserialize, Serialize};
 use serde_json;
+use std::time::{SystemTime, UNIX_EPOCH};
 use url::{ParseError, Url};
-use rand::{thread_rng, Rng};
 
 use crate::api_service::Channel;
 use crate::api_service::Location;
@@ -139,11 +142,13 @@ impl YoutubeApi {
                     subscriber_count = 0;
                 }
 
+                println!("{}", parsed_response);
+
                 let mut topic_vector: Vec<YoutubeTopic> = Vec::new();
                 let mut i = 0;
                 while i < parsed_response["items"][0]["topicDetails"]["topicIds"]
                     .as_array()
-                    .unwrap()
+                    .unwrap_or(&Vec::new())
                     .len()
                 {
                     topic_vector.push(YoutubeTopic::new(
@@ -154,10 +159,17 @@ impl YoutubeApi {
                     i = i + 1;
                 }
 
-                /* println!(
-                    "topicDetails{:?}",
-                    parsed_response["items"][0]["topicDetails"]
-                ); */
+                let current_time: chrono::DateTime<Utc> = Utc::now();
+
+                let mut channel_videos_count = parsed_response["items"][0]["statistics"]
+                    ["videoCount"]
+                    .to_string()
+                    .replace('"', "")
+                    .parse::<u32>()
+                    .unwrap();
+                if channel_videos_count > 300 {
+                    channel_videos_count = 300;
+                }
 
                 let channel = Channel::new(
                     YoutubeApi::rem_first_and_last(&parsed_response["items"][0]["id"].to_string())
@@ -207,10 +219,12 @@ impl YoutubeApi {
                     parsed_response["items"][0]["status"]["madeForKids"]
                         .to_string()
                         .parse::<bool>()
-                        .unwrap(),
+                        .unwrap_or(false),
                     "LOADING".to_string(),
                     Vec::new(),
-                    YoutubeApi::get_random_hex()
+                    YoutubeApi::get_random_hex(),
+                    bson::DateTime::from_chrono(current_time),
+                    channel_videos_count,
                 );
                 return Ok(channel);
             }
@@ -225,10 +239,11 @@ impl YoutubeApi {
         &self,
         playlist_id: &String,
         page_token: String,
-        mut open_video_amount: u16,
-        client: &reqwest::Client
+        mut open_video_amount: u32,
+        client: &reqwest::Client,
     ) -> Result<Vec<Video>, reqwest::Error> {
-        let mut max_results: u16 = 50;
+        println!("{}", playlist_id);
+        let mut max_results: u32 = 50;
         if open_video_amount <= max_results {
             max_results = open_video_amount;
             open_video_amount = 0;
@@ -255,13 +270,15 @@ impl YoutubeApi {
             .unwrap()
             .text()
             .await;
-            
+
         match response_video_ids {
             Ok(response_video_ids) => {
                 let parsed_response: serde_json::Value =
                     serde_json::from_str(&response_video_ids.to_string()).unwrap();
 
                 let mut video_ids: Vec<String> = Vec::new();
+
+                println!("{}", parsed_response);
 
                 let mut i = 0;
                 while i < parsed_response["items"].as_array().unwrap().len() {
@@ -273,7 +290,11 @@ impl YoutubeApi {
                     .iter()
                     .map(|x| x.to_string() + ",")
                     .collect::<String>();
-                video_ids_string = video_ids_string.trim_end_matches(",").to_string().replace('"', "").replace('\\', "");
+                video_ids_string = video_ids_string
+                    .trim_end_matches(",")
+                    .to_string()
+                    .replace('"', "")
+                    .replace('\\', "");
                 let response_video_details = client
                     .get("https://youtube.googleapis.com/youtube/v3/videos")
                     .header(CONTENT_TYPE, "application/json")
@@ -284,7 +305,7 @@ impl YoutubeApi {
                             "snippet,status,topicDetails,recordingDetails".to_string(),
                         ),
                         ("key", self.api_key.to_string()),
-                        ("id", video_ids_string)
+                        ("id", video_ids_string),
                     ])
                     .send()
                     .await
@@ -306,8 +327,7 @@ impl YoutubeApi {
                         {
                             let mut topic_vector: Vec<YoutubeTopic> = Vec::new();
                             let mut j = 0;
-                            while j < parsed_video_details_response
-                                ["items"][i]["topicDetails"]
+                            while j < parsed_video_details_response["items"][i]["topicDetails"]
                                 ["topicCategories"]
                                 .as_array()
                                 .unwrap()
@@ -319,64 +339,133 @@ impl YoutubeApi {
                                         &parsed_video_details_response["items"][i]["topicDetails"]
                                             ["topicCategories"][j]
                                             .to_string(),
-                                    ).to_string(),
+                                    )
+                                    .to_string(),
                                 ));
                                 j = j + 1;
                             }
 
-                            videos.push(Video::new(
-                                YoutubeApi::rem_first_and_last(&
-                                    parsed_video_details_response["items"][i]["id"].to_string(),
-                                ).to_string(),
-                                YoutubeApi::rem_first_and_last(&
-                                    parsed_video_details_response["items"][i]["snippet"]["title"]
+                            let video_title = &parsed_video_details_response["items"][i]["snippet"]["title"].to_string();
+
+                            let video_title_clean = YoutubeApi::rem_first_and_last(
+                                &video_title,
+                            );
+
+                            let latitude = YoutubeApi::rem_first_and_last(
+                                &parsed_video_details_response["items"][i]["recordingDetails"]
+                                    ["location"]["latitude"]
+                                    .to_string(),
+                            )
+                            .to_string();
+
+                            let mut video_location = Location::new(
+                                "null".to_string(),
+                                "null".to_string(),
+                                "null".to_string(),
+                            );
+
+                            if latitude == "null" {
+                                let location_response = client
+                                    .get("http://localhost:80/coordinates/")
+                                    .header(CONTENT_TYPE, "application/json")
+                                    .header(ACCEPT, "application/json")
+                                    .query(&[("video_title", video_title)])
+                                    .send()
+                                    .await
+                                    .unwrap()
+                                    .text()
+                                    .await;
+
+                                match location_response {
+                                    Ok(location_response) => {
+                                        let parsed_location_response: serde_json::Value =
+                                            serde_json::from_str(
+                                                &location_response.to_string(),
+                                            )
+                                            .unwrap();
+                                        video_location.latitude = YoutubeApi::rem_first_and_last(
+                                            &parsed_location_response[0]["latitude"].to_string(),
+                                        )
+                                        .to_string();
+                                        video_location.longitude = YoutubeApi::rem_first_and_last(
+                                            &parsed_location_response[0]["longitude"].to_string(),
+                                        )
+                                        .to_string();
+                                    }
+                                    Err(e) => {
+                                        return Err(e);
+                                    }
+                                }
+                            } else {
+                                video_location.latitude = latitude;
+                                video_location.longitude = YoutubeApi::rem_first_and_last(
+                                    &parsed_video_details_response["items"][i]["recordingDetails"]
+                                        ["location"]["longitude"]
                                         .to_string(),
-                                ).to_string(),
-                                YoutubeApi::rem_first_and_last(&
+                                )
+                                .to_string();
+                                video_location.description = YoutubeApi::rem_first_and_last(
+                                    &parsed_video_details_response["items"][i]["recordingDetails"]
+                                        ["locationDescription"]
+                                        .to_string(),
+                                )
+                                .to_string();
+                                /* video_location = Location::new(
+                                    latitude,
+                                    YoutubeApi::rem_first_and_last(
+                                        &parsed_video_details_response["items"][i]
+                                            ["recordingDetails"]["location"]["longitude"]
+                                            .to_string(),
+                                    )
+                                    .to_string(),
+                                    YoutubeApi::rem_first_and_last(
+                                        &parsed_video_details_response["items"][i]
+                                            ["recordingDetails"]["locationDescription"]
+                                            .to_string(),
+                                    )
+                                    .to_string(),
+                                ); */
+                            }
+
+                            videos.push(Video::new(
+                                YoutubeApi::rem_first_and_last(
+                                    &parsed_video_details_response["items"][i]["id"].to_string(),
+                                )
+                                .to_string(),
+                                video_title_clean.to_string(),
+                                /*    YoutubeApi::rem_first_and_last(&
                                     parsed_video_details_response["items"][i]["snippet"]
                                         ["description"]
                                         .to_string(),
-                                ).to_string(),
-                                YoutubeApi::rem_first_and_last(&
-                                    parsed_video_details_response["items"][i]["snippet"]
+                                ).to_string(), */
+                                YoutubeApi::rem_first_and_last(
+                                    &parsed_video_details_response["items"][i]["snippet"]
                                         ["publishedAt"]
                                         .to_string(),
-                                ).to_string(),
-                                YoutubeApi::rem_first_and_last(&
-                                    parsed_video_details_response["items"][i]["snippet"]
+                                )
+                                .to_string(),
+                                YoutubeApi::rem_first_and_last(
+                                    &parsed_video_details_response["items"][i]["snippet"]
                                         ["categoryId"]
                                         .to_string(),
-                                ).to_string(),
-                                YoutubeApi::rem_first_and_last(&
-                                    parsed_video_details_response["items"][i]["snippet"]
+                                )
+                                .to_string(),
+                                YoutubeApi::rem_first_and_last(
+                                    &parsed_video_details_response["items"][i]["snippet"]
                                         ["defaultLanguage"]
                                         .to_string(),
-                                ).to_string(),
-                                YoutubeApi::rem_first_and_last(&
-                                    parsed_video_details_response["items"][i]["snippet"]
+                                )
+                                .to_string(),
+                                YoutubeApi::rem_first_and_last(
+                                    &parsed_video_details_response["items"][i]["snippet"]
                                         ["defaultAudioLanguage"]
                                         .to_string(),
-                                ).to_string(),
+                                )
+                                .to_string(),
                                 topic_vector,
-                                Location::new(
-                                    YoutubeApi::rem_first_and_last(&
-                                        parsed_video_details_response["items"][i]
-                                            ["recordingDetails"]["location"]["latitude"]
-                                            .to_string(),
-                                    ).to_string(),
-                                    YoutubeApi::rem_first_and_last(&
-                                        parsed_video_details_response["items"][i]
-                                            ["recordingDetails"]["location"]["longitude"]
-                                            .to_string(),
-                                    ).to_string(),
-                                    YoutubeApi::rem_first_and_last(&
-                                        parsed_video_details_response["items"][i]
-                                            ["recordingDetails"]["locationDescription"]
-                                            .to_string(),
-                                    ).to_string(),
-                                ),
-                                YoutubeApi::rem_first_and_last(&
-                                    parsed_video_details_response["items"][i]["status"]
+                                video_location,
+                                YoutubeApi::rem_first_and_last(
+                                    &parsed_video_details_response["items"][i]["status"]
                                         ["madeForKids"]
                                         .to_string(),
                                 )
@@ -389,34 +478,32 @@ impl YoutubeApi {
                             return Ok(videos);
                         } else {
                             let next_page_token = parsed_response["nextPageToken"].as_str();
-        
+
                             if next_page_token != None {
                                 let further_request = YoutubeApi::get_playlist_videos(
                                     &self,
                                     playlist_id,
                                     next_page_token.unwrap().to_string(),
                                     open_video_amount,
-                                    &client
+                                    &client,
                                 )
                                 .await;
-        
+
                                 match further_request {
                                     Ok(mut response2) => {
                                         videos.append(&mut response2);
-                                        return Ok(videos)
+                                        return Ok(videos);
                                     }
                                     Err(e2) => {
                                         return Err(e2);
                                     }
                                 }
                             } else {
-                                return Ok(videos)
+                                return Ok(videos);
                             }
                         }
                     }
-                    Err(e) => {
-                        return Err(e)
-                    }
+                    Err(e) => return Err(e),
                 }
             }
             Err(e) => {

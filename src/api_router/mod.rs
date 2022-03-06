@@ -37,7 +37,6 @@ async fn add_user(
     data: web::Json<AddChannelRequestBody>,
 ) -> impl Responder {
     let channel_url = data.channel_url.trim();
-    let video_amount = data.video_amount;
     let url_check_result = app_data
         .service_manager
         .youtube_api
@@ -61,7 +60,7 @@ async fn add_user(
                             .get_playlist_videos(
                                 &channel.channel_uploads_playlist_id,
                                 "FIRST_PAGE".to_string(),
-                                video_amount,
+                                channel.video_count,
                                 &client,
                             )
                             .await;

@@ -9,7 +9,7 @@ edition = "2021"
 mongodb = "2.1.0"
 actix-web = "4.0.0-beta.x"
 actix-rt = "2.6.0"
-bson = "2.1.0"
+bson = {version = "2.1.0", features = ["chrono-0_4"]}
 serde = "1.0.136"
 futures = "0.3.21"
 env_logger = "0.9.0"
@@ -21,3 +21,4 @@ reqwest = { version = "0.11", features = ["json"] }
 url = "2.2.2"
 async-recursion = "1.0.0"
 rand = "0.8.5"
+chrono = "0.4.19"

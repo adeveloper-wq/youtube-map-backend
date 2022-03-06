@@ -1,5 +1,5 @@
 // External imports
-use bson::{doc, Document};
+use bson::{doc, Document, DateTime};
 use futures::StreamExt;
 use mongodb::results::{DeleteResult, InsertOneResult, UpdateResult};
 use mongodb::{error::Error, Collection};
@@ -14,40 +14,40 @@ extern crate serde_json;
 pub struct Video {
     pub video_id: String,
     pub video_titel: String,
-    pub video_description: String,
+    /* pub video_description: String, */
     pub video_published_at: String,
     pub video_category_id: String,
     pub video_default_language: String,
     pub video_default_audio_language: String,
     pub video_topics: Vec<YoutubeTopic>,
     pub video_location: Location,
-    pub made_for_kids: bool,
+    pub made_for_kids: bool
 }
 
 impl Video {
     pub fn new(
         video_id: String,
         video_titel: String,
-        video_description: String,
+        /* video_description: String, */
         video_published_at: String,
         video_category_id: String,
         video_default_language: String,
         video_default_audio_language: String,
         video_topics: Vec<YoutubeTopic>,
         video_location: Location,
-        made_for_kids: bool,
+        made_for_kids: bool
     ) -> Video {
         Video {
             video_id,
             video_titel,
-            video_description,
+            /* video_description, */
             video_published_at,
             video_category_id,
             video_default_language,
             video_default_audio_language,
             video_topics,
             video_location,
-            made_for_kids,
+            made_for_kids
         }
     }
 }
@@ -102,6 +102,8 @@ pub struct Channel {
     pub status: String,
     pub videos: Vec<Video>,
     pub map_marker_hex_color: String,
+    pub last_updated: DateTime,
+    pub video_count: u32
 }
 
 impl Channel {
@@ -121,6 +123,8 @@ impl Channel {
         status: String,
         videos: Vec<Video>,
         map_marker_hex_color: String,
+        last_updated: DateTime,
+        video_count: u32
     ) -> Channel {
         Channel {
             channel_id,
@@ -137,15 +141,16 @@ impl Channel {
             made_for_kids,
             status,
             videos,
-            map_marker_hex_color
+            map_marker_hex_color,
+            last_updated,
+            video_count
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AddChannelRequestBody {
-    pub channel_url: String,
-    pub video_amount: u16,
+    pub channel_url: String
 }
 
 // Reference colection clone
@@ -171,7 +176,9 @@ fn data_to_document(data: &Channel) -> Document {
         made_for_kids,
         status,
         videos,
-        map_marker_hex_color
+        map_marker_hex_color,
+        last_updated,
+        video_count
     } = data;
     doc! {
         "channel_id": channel_id,
@@ -189,7 +196,9 @@ fn data_to_document(data: &Channel) -> Document {
         "made_for_kids": made_for_kids,
         "status": status,
         "videos": bson::to_bson(&videos).unwrap(),
-        "map_marker_hex_color": map_marker_hex_color
+        "map_marker_hex_color": map_marker_hex_color,
+        "last_updated": last_updated,
+        "video_count": video_count
     }
 }
 
