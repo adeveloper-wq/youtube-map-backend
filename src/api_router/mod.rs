@@ -1,4 +1,5 @@
-use crate::api_service::{AddChannelRequestBody, Channel};
+use crate::{api_service::{AddChannelRequestBody, Channel}, youtube_api::YoutubeApi};
+use actix::Arbiter;
 use actix_web::{get, post, web, HttpResponse, Responder};
 use futures::TryFutureExt;
 
@@ -53,34 +54,57 @@ async fn add_user(
                 let result = web::block(move || action).await;
                 match result {
                     Ok(result_channel) => {
-                        let channel = result_channel.as_ref().unwrap();
-                        let result_get_all_videos = app_data
-                            .service_manager
-                            .youtube_api
-                            .get_playlist_videos(
-                                &channel.channel_uploads_playlist_id,
-                                "FIRST_PAGE".to_string(),
-                                channel.video_count,
-                                &client,
-                            )
-                            .await;
+                        let channel_ref = result_channel.as_ref().unwrap();
+                        /* let channel = result_channel.unwrap(); */
 
-                        match result_get_all_videos {
-                            Ok(result_get_all_videos) => {
-                                let mut channel = result_channel.unwrap();
-                                channel.videos = result_get_all_videos;
-                                let action = app_data.service_manager.api.create(&channel).await;
-                                let result_mongodb_update = web::block(move || action).await;
-                                match result_mongodb_update {
-                                    Ok(result_mongodb_update) => {
-                                        return HttpResponse::Ok()
-                                            .json(&result_mongodb_update.unwrap());
-                                    }
-                                    Err(e) => {
-                                        println!("Error while getting, {:?}", e);
-                                        return HttpResponse::InternalServerError().finish();
-                                    }
+                        let channel2 = channel_ref.clone();
+                        let app_data2 = app_data.clone();
+
+                        let arbiter = Arbiter::new();
+
+                        arbiter.spawn(async move { YoutubeApi::add_playlist_videos(&channel2, &client, &app_data2).await});
+
+                       /*  Arbiter::spawn(async {
+                            app_data.service_manager.youtube_api.add_playlist_videos(channel_ref, &client, &app_data);
+                            /* let result_get_all_videos = app_data
+                                .service_manager
+                                .youtube_api
+                                .get_playlist_videos(
+                                    &channel_ref.channel_uploads_playlist_id,
+                                    "FIRST_PAGE".to_string(),
+                                    channel_ref.video_count,
+                                    &client,
+                                )
+                                .await;
+
+                            match result_get_all_videos {
+                                Ok(result_get_all_videos) => {
+                                    let action =
+                                        app_data.service_manager.api.update_videos(&result_get_all_videos, &channel_ref.channel_id).await;
+                                    let result_mongodb_update = web::block(move || action).await;
+                                    /* match result_mongodb_update {
+                                        Ok(result_mongodb_update) => {
+                                            
+                                        }
+                                        Err(e) => {
+                                            println!("Error while getting, {:?}", e);
+                                        }
+                                    } */
                                 }
+                                /* Err(e) => {
+                                    println!("Error while getting, {:?}", e);
+                                    return HttpResponse::InternalServerError().finish();
+                                } */
+                            } */
+                        }); */
+
+                        let channel = result_channel.unwrap();
+
+                        let action = app_data.service_manager.api.create(&channel).await;
+                        let result_mongodb_update = web::block(move || action).await;
+                        match result_mongodb_update {
+                            Ok(result_mongodb_update) => {
+                                return HttpResponse::Ok().json(&result_mongodb_update.unwrap());
                             }
                             Err(e) => {
                                 println!("Error while getting, {:?}", e);

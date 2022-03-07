@@ -1,3 +1,4 @@
+use actix_web::web;
 // External imports
 use async_recursion::async_recursion;
 use bson::DateTime;
@@ -142,8 +143,6 @@ impl YoutubeApi {
                     subscriber_count = 0;
                 }
 
-                println!("{}", parsed_response);
-
                 let mut topic_vector: Vec<YoutubeTopic> = Vec::new();
                 let mut i = 0;
                 while i < parsed_response["items"][0]["topicDetails"]["topicIds"]
@@ -167,8 +166,8 @@ impl YoutubeApi {
                     .replace('"', "")
                     .parse::<u32>()
                     .unwrap();
-                if channel_videos_count > 300 {
-                    channel_videos_count = 300;
+                if channel_videos_count > 20 {
+                    channel_videos_count = 20;
                 }
 
                 let channel = Channel::new(
@@ -234,6 +233,42 @@ impl YoutubeApi {
         }
     }
 
+    pub async fn add_playlist_videos(channel: &Channel, client: &reqwest::Client, app_data: &web::Data<crate::AppState>) {
+        let result_get_all_videos = app_data
+            .service_manager
+            .youtube_api
+            .get_playlist_videos(
+                &channel.channel_uploads_playlist_id,
+                "FIRST_PAGE".to_string(),
+                channel.video_count,
+                &client,
+            )
+            .await;
+
+        match result_get_all_videos {
+            Ok(result_get_all_videos) => {
+                let action = app_data
+                    .service_manager
+                    .api
+                    .update_videos(&result_get_all_videos, &channel.channel_id)
+                    .await;
+                /* let result_mongodb_update = web::block(move || action).await; */
+                /* match result_mongodb_update {
+                    Ok(result_mongodb_update) => {
+
+                    }
+                    Err(e) => {
+                        println!("Error while getting, {:?}", e);
+                    }
+                } */
+            }
+            Err(e) => {
+                println!("Error while getting, {:?}", e);
+                /* return HttpResponse::InternalServerError().finish(); */
+            }
+        }
+    }
+
     #[async_recursion]
     pub async fn get_playlist_videos(
         &self,
@@ -242,7 +277,6 @@ impl YoutubeApi {
         mut open_video_amount: u32,
         client: &reqwest::Client,
     ) -> Result<Vec<Video>, reqwest::Error> {
-        println!("{}", playlist_id);
         let mut max_results: u32 = 50;
         if open_video_amount <= max_results {
             max_results = open_video_amount;
@@ -277,8 +311,6 @@ impl YoutubeApi {
                     serde_json::from_str(&response_video_ids.to_string()).unwrap();
 
                 let mut video_ids: Vec<String> = Vec::new();
-
-                println!("{}", parsed_response);
 
                 let mut i = 0;
                 while i < parsed_response["items"].as_array().unwrap().len() {
@@ -345,11 +377,11 @@ impl YoutubeApi {
                                 j = j + 1;
                             }
 
-                            let video_title = &parsed_video_details_response["items"][i]["snippet"]["title"].to_string();
+                            let video_title = &parsed_video_details_response["items"][i]["snippet"]
+                                ["title"]
+                                .to_string();
 
-                            let video_title_clean = YoutubeApi::rem_first_and_last(
-                                &video_title,
-                            );
+                            let video_title_clean = YoutubeApi::rem_first_and_last(&video_title);
 
                             let latitude = YoutubeApi::rem_first_and_last(
                                 &parsed_video_details_response["items"][i]["recordingDetails"]
@@ -379,10 +411,8 @@ impl YoutubeApi {
                                 match location_response {
                                     Ok(location_response) => {
                                         let parsed_location_response: serde_json::Value =
-                                            serde_json::from_str(
-                                                &location_response.to_string(),
-                                            )
-                                            .unwrap();
+                                            serde_json::from_str(&location_response.to_string())
+                                                .unwrap();
                                         video_location.latitude = YoutubeApi::rem_first_and_last(
                                             &parsed_location_response[0]["latitude"].to_string(),
                                         )

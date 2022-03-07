@@ -10,7 +10,7 @@ use crate::youtube_api::YoutubeApi;
 extern crate serde;
 extern crate serde_json;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Video {
     pub video_id: String,
     pub video_titel: String,
@@ -52,7 +52,7 @@ impl Video {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct YoutubeTopic {
     pub topic_id: String,
     pub topic_url: String,
@@ -67,7 +67,7 @@ impl YoutubeTopic {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Location {
     pub latitude: String,
     pub longitude: String,
@@ -85,7 +85,7 @@ impl Location {
 }
 
 // Estructure data for DB
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Channel {
     pub channel_id: String,
     pub channel_name: String,
@@ -215,15 +215,14 @@ impl ApiService {
             .await
     }
 
-    /* // Update an existing document
-    pub async fn update(&self, _data: &Channel, _param: &String) -> Result<UpdateResult, Error> {
+    // Update an existing document
+    pub async fn update_videos(&self, _videos: &Vec<Video>, _channel_id: &String) -> Result<UpdateResult, Error> {
         //let object_param = bson::oid::ObjectId::parse_str(_param).unwrap();
 
-        //println!("--------------------- {:?}", object_param.to_string());
         self.collection
-            .update_one(doc! { "channel_id": _param }, doc!{"$set": data_to_document(_data) }, None)
+            .update_one(doc! { "channel_id": _channel_id }, doc!{"$set": doc! {"videos": bson::to_bson(&_videos).unwrap(), "status": "IDLE"} }, None)
             .await
-    } */
+    }
 
     /* // Delete some document
     pub async fn delete(&self, _channel_id: &String) -> Result<DeleteResult, Error> {
