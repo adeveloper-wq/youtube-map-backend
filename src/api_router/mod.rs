@@ -1,11 +1,14 @@
-use crate::{api_service::{AddChannelRequestBody, Channel}, youtube_api::YoutubeApi};
+use crate::{
+    api_service::{AddChannelRequestBody, Channel},
+    youtube_api::YoutubeApi,
+};
 use actix::Arbiter;
 use actix_web::{get, post, web, HttpResponse, Responder};
 use futures::TryFutureExt;
 
-#[get("/get-all")]
-async fn get_all_json(app_data: web::Data<crate::AppState>) -> impl Responder {
-    let action = app_data.service_manager.api.get_json().await;
+#[get("/channel")]
+async fn get_all_channels(app_data: web::Data<crate::AppState>) -> impl Responder {
+    let action = app_data.service_manager.api.get_all_channels().await;
     let result = web::block(move || action).await;
     match result {
         Ok(result) => HttpResponse::Ok().json(result.unwrap()),
@@ -16,12 +19,16 @@ async fn get_all_json(app_data: web::Data<crate::AppState>) -> impl Responder {
     }
 }
 
-#[get("/get-by/{param}")]
-async fn get_user_email(
+#[get("/channel/search/{param}")]
+async fn channel_search(
     app_data: web::Data<crate::AppState>,
     param: web::Path<String>,
 ) -> impl Responder {
-    let action = app_data.service_manager.api.get_by(&param).await;
+    let action = app_data
+        .service_manager
+        .api
+        .get_channels_by_name(&param)
+        .await;
     let result = web::block(move || action).await;
     match result {
         Ok(result) => HttpResponse::Ok().json(result.unwrap()),
@@ -32,8 +39,24 @@ async fn get_user_email(
     }
 }
 
-#[post("/add")]
-async fn add_user(
+#[get("/channel/{param}")]
+async fn get_channel_by_id(
+    app_data: web::Data<crate::AppState>,
+    param: web::Path<String>,
+) -> impl Responder {
+    let action = app_data.service_manager.api.get_channel_by_id(&param).await;
+    let result = web::block(move || action).await;
+    match result {
+        Ok(result) => HttpResponse::Ok().json(result.unwrap()),
+        Err(e) => {
+            println!("Error while getting, {:?}", e);
+            HttpResponse::InternalServerError().finish()
+        }
+    }
+}
+
+#[post("/channel")]
+async fn add_channel(
     app_data: web::Data<crate::AppState>,
     data: web::Json<AddChannelRequestBody>,
 ) -> impl Responder {
@@ -58,13 +81,12 @@ async fn add_user(
                         /* let channel = result_channel.unwrap(); */
 
                         let channel2 = channel_ref.clone();
+                        let channel3 = channel_ref.clone();
                         let app_data2 = app_data.clone();
 
                         let arbiter = Arbiter::new();
 
-                        arbiter.spawn(async move { YoutubeApi::add_playlist_videos(&channel2, &client, &app_data2).await});
-
-                       /*  Arbiter::spawn(async {
+                        /*  Arbiter::spawn(async {
                             app_data.service_manager.youtube_api.add_playlist_videos(channel_ref, &client, &app_data);
                             /* let result_get_all_videos = app_data
                                 .service_manager
@@ -84,7 +106,7 @@ async fn add_user(
                                     let result_mongodb_update = web::block(move || action).await;
                                     /* match result_mongodb_update {
                                         Ok(result_mongodb_update) => {
-                                            
+
                                         }
                                         Err(e) => {
                                             println!("Error while getting, {:?}", e);
@@ -104,7 +126,27 @@ async fn add_user(
                         let result_mongodb_update = web::block(move || action).await;
                         match result_mongodb_update {
                             Ok(result_mongodb_update) => {
-                                return HttpResponse::Ok().json(&result_mongodb_update.unwrap());
+                                if result_mongodb_update.unwrap().matched_count == (0 as u64) {
+                                    arbiter.spawn(async move {
+                                        YoutubeApi::add_playlist_videos(
+                                            &channel2, &client, &app_data2,
+                                        )
+                                        .await
+                                    });
+                                }
+                                let action = app_data
+                                    .service_manager
+                                    .api
+                                    .get_channel_by_id(&channel3.channel_id)
+                                    .await;
+                                let result = web::block(move || action).await;
+                                match result {
+                                    Ok(result) => HttpResponse::Ok().json(result.unwrap()),
+                                    Err(e) => {
+                                        println!("Error while getting, {:?}", e);
+                                        HttpResponse::InternalServerError().finish()
+                                    }
+                                }
                             }
                             Err(e) => {
                                 println!("Error while getting, {:?}", e);
@@ -166,9 +208,10 @@ async fn delete_user(app_data: web::Data<crate::AppState>, data: web::Json<Chann
 
 // function that will be called on new Application to configure routes for this module
 pub fn init(cfg: &mut web::ServiceConfig) {
-    cfg.service(get_user_email);
-    cfg.service(add_user);
+    cfg.service(add_channel);
+    cfg.service(channel_search);
     /* cfg.service(update_user);
     cfg.service(delete_user); */
-    cfg.service(get_all_json);
+    cfg.service(get_all_channels);
+    cfg.service(get_channel_by_id);
 }

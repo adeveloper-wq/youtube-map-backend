@@ -403,15 +403,14 @@ impl YoutubeApi {
                                     .header(ACCEPT, "application/json")
                                     .query(&[("video_title", video_title)])
                                     .send()
-                                    .await
-                                    .unwrap()
-                                    .text()
                                     .await;
+                                    
 
                                 match location_response {
                                     Ok(location_response) => {
+                                        let text = location_response.text().await;
                                         let parsed_location_response: serde_json::Value =
-                                            serde_json::from_str(&location_response.to_string())
+                                            serde_json::from_str(&text.unwrap())
                                                 .unwrap();
                                         video_location.latitude = YoutubeApi::rem_first_and_last(
                                             &parsed_location_response[0]["latitude"].to_string(),

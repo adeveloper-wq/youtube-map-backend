@@ -1,6 +1,9 @@
+use bson::oid::ObjectId;
 // External imports
-use bson::{doc, Document, DateTime};
+use bson::{doc, DateTime, Document};
+use chrono::Utc;
 use futures::StreamExt;
+use mongodb::options::UpdateOptions;
 use mongodb::results::{DeleteResult, InsertOneResult, UpdateResult};
 use mongodb::{error::Error, Collection};
 use serde::{Deserialize, Serialize};
@@ -21,7 +24,7 @@ pub struct Video {
     pub video_default_audio_language: String,
     pub video_topics: Vec<YoutubeTopic>,
     pub video_location: Location,
-    pub made_for_kids: bool
+    pub made_for_kids: bool,
 }
 
 impl Video {
@@ -35,7 +38,7 @@ impl Video {
         video_default_audio_language: String,
         video_topics: Vec<YoutubeTopic>,
         video_location: Location,
-        made_for_kids: bool
+        made_for_kids: bool,
     ) -> Video {
         Video {
             video_id,
@@ -47,7 +50,7 @@ impl Video {
             video_default_audio_language,
             video_topics,
             video_location,
-            made_for_kids
+            made_for_kids,
         }
     }
 }
@@ -103,7 +106,7 @@ pub struct Channel {
     pub videos: Vec<Video>,
     pub map_marker_hex_color: String,
     pub last_updated: DateTime,
-    pub video_count: u32
+    pub video_count: u32,
 }
 
 impl Channel {
@@ -124,7 +127,7 @@ impl Channel {
         videos: Vec<Video>,
         map_marker_hex_color: String,
         last_updated: DateTime,
-        video_count: u32
+        video_count: u32,
     ) -> Channel {
         Channel {
             channel_id,
@@ -143,14 +146,14 @@ impl Channel {
             videos,
             map_marker_hex_color,
             last_updated,
-            video_count
+            video_count,
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AddChannelRequestBody {
-    pub channel_url: String
+    pub channel_url: String,
 }
 
 // Reference colection clone
@@ -178,9 +181,9 @@ fn data_to_document(data: &Channel) -> Document {
         videos,
         map_marker_hex_color,
         last_updated,
-        video_count
+        video_count,
     } = data;
-    doc! {
+    doc! {"$setOnInsert": doc! {
         "channel_id": channel_id,
         "channel_name": channel_name,
         "channel_description": channel_description,
@@ -199,7 +202,7 @@ fn data_to_document(data: &Channel) -> Document {
         "map_marker_hex_color": map_marker_hex_color,
         "last_updated": last_updated,
         "video_count": video_count
-    }
+    }}
 }
 
 // Functions with quieries to Mongo
@@ -208,19 +211,29 @@ impl ApiService {
         ApiService { collection }
     }
 
-    // Insert data to Mongo DB
-    pub async fn create(&self, _data: &Channel) -> Result<InsertOneResult, Error> {
+    // Create channel
+    pub async fn create(&self, _data: &Channel) -> Result<UpdateResult, Error> {
+        let mut options = UpdateOptions::default();
+        options.upsert=Some(true);
         self.collection
-            .insert_one(data_to_document(_data), None)
+            .update_one(
+                doc! { "channel_id": &_data.channel_id },
+                data_to_document(_data),
+                options,
+            )
             .await
     }
 
-    // Update an existing document
-    pub async fn update_videos(&self, _videos: &Vec<Video>, _channel_id: &String) -> Result<UpdateResult, Error> {
+    // Update channel with videos
+    pub async fn update_videos(
+        &self,
+        _videos: &Vec<Video>,
+        _channel_id: &String,
+    ) -> Result<UpdateResult, Error> {
         //let object_param = bson::oid::ObjectId::parse_str(_param).unwrap();
 
         self.collection
-            .update_one(doc! { "channel_id": _channel_id }, doc!{"$set": doc! {"videos": bson::to_bson(&_videos).unwrap(), "status": "IDLE"} }, None)
+            .update_one(doc! { "channel_id": _channel_id }, doc!{"$set": doc! {"videos": bson::to_bson(&_videos).unwrap(), "status": "IDLE", "last_updated": bson::DateTime::from_chrono(Utc::now())} }, None)
             .await
     }
 
@@ -237,10 +250,10 @@ impl ApiService {
         _videos: &Vec<Video>,
         _channel_id: &String,
     ) -> Result<UpdateResult, Error> {
-        
+
         self.collection
             .update_one(
-                doc! { "channel_id": _channel_id },    
+                doc! { "channel_id": _channel_id },
                 doc! { "$set": { "videos": bson::to_bson(_videos).unwrap(), "status": "FINISHED" }},
                 None,
             )
@@ -248,7 +261,9 @@ impl ApiService {
     } */
 
     // Get all documents
-    pub async fn get_json(&self) -> Result<std::vec::Vec<bson::Document>, mongodb::error::Error> {
+    pub async fn get_all_channels(
+        &self,
+    ) -> Result<std::vec::Vec<bson::Document>, mongodb::error::Error> {
         let mut cursor = match self.collection.find(None, None).await {
             Ok(cursor) => cursor,
             Err(error) => return Err(error),
@@ -260,8 +275,8 @@ impl ApiService {
         Ok(docs)
     }
 
-    // Get documents with quiery
-    pub async fn get_by(
+    // Search channels by name
+    pub async fn get_channels_by_name(
         &self,
         param: &String,
     ) -> std::result::Result<std::vec::Vec<bson::Document>, mongodb::error::Error> {
@@ -277,7 +292,46 @@ impl ApiService {
         while let Some(doc) = cursor.next().await {
             docs.push(doc.unwrap());
         }
-        let _serialized = serde_json::to_string(&docs).unwrap();
+        //let _serialized = serde_json::to_string(&docs).unwrap();
         Ok(docs)
+    }
+
+    pub async fn get_channel_by_mongodb_id(
+        &self,
+        param: &ObjectId,
+    ) -> std::result::Result<bson::Document, mongodb::error::Error> {
+        let cursor = match self.collection.find_one(doc! { "_id": param }, None).await {
+            Ok(cursor) => cursor,
+            Err(error) => return Err(error),
+        };
+        /*         let mut docs: Vec<bson::Document> = Vec::new();
+        while let Some(doc) = cursor.next().await {
+            docs.push(doc.unwrap());
+        } */
+        //let _serialized = serde_json::to_string(&cursor.unwrap()).unwrap();
+
+        Ok(cursor.unwrap_or(Document::new()))
+    }
+
+    // Get channels by id
+    pub async fn get_channel_by_id(
+        &self,
+        param: &String,
+    ) -> std::result::Result<bson::Document, mongodb::error::Error> {
+        let cursor = match self
+            .collection
+            .find_one(doc! { "channel_id": param }, None)
+            .await
+        {
+            Ok(cursor) => cursor,
+            Err(error) => return Err(error),
+        };
+        /*         let mut docs: Vec<bson::Document> = Vec::new();
+        while let Some(doc) = cursor.next().await {
+            docs.push(doc.unwrap());
+        } */
+        //let _serialized = serde_json::to_string(&cursor.unwrap()).unwrap();
+
+        Ok(cursor.unwrap_or(Document::new()))
     }
 }
