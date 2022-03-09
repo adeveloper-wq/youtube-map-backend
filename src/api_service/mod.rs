@@ -103,10 +103,11 @@ pub struct Channel {
     pub channel_trailer: String,
     pub made_for_kids: bool,
     pub status: String,
-    pub videos: Vec<Video>,
+    pub channel_videos: Vec<Video>,
     pub map_marker_hex_color: String,
     pub last_updated: DateTime,
     pub video_count: u32,
+    pub channel_custom_url: String
 }
 
 impl Channel {
@@ -124,10 +125,11 @@ impl Channel {
         channel_trailer: String,
         made_for_kids: bool,
         status: String,
-        videos: Vec<Video>,
+        channel_videos: Vec<Video>,
         map_marker_hex_color: String,
         last_updated: DateTime,
         video_count: u32,
+        channel_custom_url: String
     ) -> Channel {
         Channel {
             channel_id,
@@ -143,10 +145,11 @@ impl Channel {
             channel_trailer,
             made_for_kids,
             status,
-            videos,
+            channel_videos,
             map_marker_hex_color,
             last_updated,
             video_count,
+            channel_custom_url
         }
     }
 }
@@ -178,10 +181,11 @@ fn data_to_document(data: &Channel) -> Document {
         channel_trailer,
         made_for_kids,
         status,
-        videos,
+        channel_videos,
         map_marker_hex_color,
         last_updated,
         video_count,
+        channel_custom_url
     } = data;
     doc! {"$setOnInsert": doc! {
         "channel_id": channel_id,
@@ -198,10 +202,11 @@ fn data_to_document(data: &Channel) -> Document {
         "channel_trailer": channel_trailer,
         "made_for_kids": made_for_kids,
         "status": status,
-        "videos": bson::to_bson(&videos).unwrap(),
+        "channel_videos": bson::to_bson(&channel_videos).unwrap(),
         "map_marker_hex_color": map_marker_hex_color,
         "last_updated": last_updated,
-        "video_count": video_count
+        "video_count": video_count,
+        "channel_custom_url": channel_custom_url
     }}
 }
 
@@ -233,7 +238,7 @@ impl ApiService {
         //let object_param = bson::oid::ObjectId::parse_str(_param).unwrap();
 
         self.collection
-            .update_one(doc! { "channel_id": _channel_id }, doc!{"$set": doc! {"videos": bson::to_bson(&_videos).unwrap(), "status": "IDLE", "last_updated": bson::DateTime::from_chrono(Utc::now())} }, None)
+            .update_one(doc! { "channel_id": _channel_id }, doc!{"$set": doc! {"channel_videos": bson::to_bson(&_videos).unwrap(), "status": "IDLE", "last_updated": bson::DateTime::from_chrono(Utc::now())} }, None)
             .await
     }
 

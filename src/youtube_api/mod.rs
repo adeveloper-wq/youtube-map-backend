@@ -6,11 +6,12 @@ use bson::{doc, Document};
 use chrono::prelude::*;
 use futures::StreamExt;
 use rand::{thread_rng, Rng};
+use regex::Regex;
 use reqwest;
 use reqwest::header::ACCEPT;
 use reqwest::header::CONTENT_TYPE;
 use serde::{Deserialize, Serialize};
-use serde_json;
+use serde_json::{self, Value};
 use std::time::{SystemTime, UNIX_EPOCH};
 use url::{ParseError, Url};
 
@@ -90,13 +91,23 @@ impl YoutubeApi {
             channel_identifier_is_id = true;
             channel_identifier = channel_url.split("/channel/").last().unwrap().to_string();
         } else {
-            channel_identifier = channel_url.split("/c/").last().unwrap().to_string();
+            //channel_identifier = channel_url.split("/c/").last().unwrap().to_string();
+
+            let body = reqwest::get(channel_url.to_owned() + &"/videos".to_string()).await.unwrap().text().await.unwrap();
+
+            let re = Regex::new("(canonical\" href=\"https://www.youtube.com/channel/)[^\"]*").unwrap();
+
+            let caps = re.captures(body.as_str()).unwrap();
+
+            channel_identifier = caps.get(0).unwrap().as_str().split("/channel/").last().unwrap().to_string();
+
+            println!("{}", channel_identifier);
         }
         // https://blog.logrocket.com/making-http-requests-rust-reqwest/
 
         let response: Result<String, reqwest::Error>;
 
-        if channel_identifier_is_id {
+        if true {
             response = client
                 .get("https://youtube.googleapis.com/youtube/v3/channels")
                 .header(CONTENT_TYPE, "application/json")
@@ -224,6 +235,10 @@ impl YoutubeApi {
                     YoutubeApi::get_random_hex(),
                     bson::DateTime::from_chrono(current_time),
                     channel_videos_count,
+                    YoutubeApi::rem_first_and_last(
+                        &parsed_response["items"][0]["snippet"]["customUrl"].to_string(),
+                    )
+                    .to_string(),
                 );
                 return Ok(channel);
             }
@@ -362,7 +377,7 @@ impl YoutubeApi {
                             while j < parsed_video_details_response["items"][i]["topicDetails"]
                                 ["topicCategories"]
                                 .as_array()
-                                .unwrap()
+                                .unwrap_or(&Vec::<Value>::new())
                                 .len()
                             {
                                 topic_vector.push(YoutubeTopic::new(
