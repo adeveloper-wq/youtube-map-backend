@@ -7,7 +7,7 @@ use actix_web::{get, post, web, HttpResponse, Responder};
 use futures::TryFutureExt;
 use regex::Regex;
 
-#[get("/channel")]
+#[get("/")]
 async fn get_all_channels(app_data: web::Data<crate::AppState>) -> impl Responder {
     let action = app_data.service_manager.api.get_all_channels().await;
     let result = web::block(move || action).await;
