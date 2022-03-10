@@ -339,4 +339,26 @@ impl ApiService {
 
         Ok(cursor.unwrap_or(Document::new()))
     }
+
+    // Get channels by youtube custom url
+    pub async fn get_channel_by_custom_url(
+        &self,
+        param: &String,
+    ) -> std::result::Result<bson::Document, mongodb::error::Error> {
+        let cursor = match self
+            .collection
+            .find_one(doc! { "channel_custom_url": param }, None)
+            .await
+        {
+            Ok(cursor) => cursor,
+            Err(error) => return Err(error),
+        };
+        /*         let mut docs: Vec<bson::Document> = Vec::new();
+        while let Some(doc) = cursor.next().await {
+            docs.push(doc.unwrap());
+        } */
+        //let _serialized = serde_json::to_string(&cursor.unwrap()).unwrap();
+
+        Ok(cursor.unwrap_or(Document::new()))
+    }
 }

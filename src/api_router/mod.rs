@@ -5,6 +5,7 @@ use crate::{
 use actix::Arbiter;
 use actix_web::{get, post, web, HttpResponse, Responder};
 use futures::TryFutureExt;
+use regex::Regex;
 
 #[get("/channel")]
 async fn get_all_channels(app_data: web::Data<crate::AppState>) -> impl Responder {
@@ -55,12 +56,77 @@ async fn get_channel_by_id(
     }
 }
 
+#[get("/c/{param}")]
+async fn get_channel_by_custom_url(
+    app_data: web::Data<crate::AppState>,
+    param: web::Path<String>,
+) -> impl Responder {
+    let action = app_data
+        .service_manager
+        .api
+        .get_channel_by_custom_url(&param)
+        .await;
+    let result = web::block(move || action).await;
+    match result {
+        Ok(result) => HttpResponse::Ok().json(result.unwrap()),
+        Err(e) => {
+            println!("Error while getting, {:?}", e);
+            HttpResponse::InternalServerError().finish()
+        }
+    }
+}
+
+#[get("/{param}")]
+async fn get_channel_by_username(
+    app_data: web::Data<crate::AppState>,
+    param: web::Path<String>,
+) -> impl Responder {
+    let response_channel_page = reqwest::get(
+        "https://www.youtube.com/".to_string() + &param.to_string() + &"/videos".to_string(),
+    )
+    .await
+    .unwrap();
+
+    if response_channel_page.status() == 404 {
+        return HttpResponse::NotFound().finish();
+    }
+
+    let body = response_channel_page.text().await.unwrap();
+
+    let re = Regex::new("(canonical\" href=\"https://www.youtube.com/channel/)[^\"]*").unwrap();
+
+    let caps = re.captures(body.as_str()).unwrap();
+
+    let channel_id = caps
+        .get(0)
+        .unwrap()
+        .as_str()
+        .split("/channel/")
+        .last()
+        .unwrap()
+        .to_string();
+
+    let action = app_data
+        .service_manager
+        .api
+        .get_channel_by_id(&channel_id)
+        .await;
+    let result = web::block(move || action).await;
+    match result {
+        Ok(result) => HttpResponse::Ok().json(result.unwrap()),
+        Err(e) => {
+            println!("Error while getting, {:?}", e);
+            HttpResponse::InternalServerError().finish()
+        }
+    }
+}
+
 #[post("/channel")]
 async fn add_channel(
     app_data: web::Data<crate::AppState>,
     data: web::Json<AddChannelRequestBody>,
 ) -> impl Responder {
-    let channel_url = data.channel_url.trim();
+    let channel_url = data.channel_url.trim().replace("/videos", "");
     let url_check_result = app_data
         .service_manager
         .youtube_api
@@ -79,6 +145,9 @@ async fn add_channel(
                     Ok(result_channel) => {
                         let channel_ref = result_channel.as_ref().unwrap();
                         /* let channel = result_channel.unwrap(); */
+                        if channel_ref.channel_name == "" {
+                            return HttpResponse::NotFound().finish();
+                        }
 
                         let channel2 = channel_ref.clone();
                         let channel3 = channel_ref.clone();
@@ -210,8 +279,8 @@ async fn delete_user(app_data: web::Data<crate::AppState>, data: web::Json<Chann
 pub fn init(cfg: &mut web::ServiceConfig) {
     cfg.service(add_channel);
     cfg.service(channel_search);
-    /* cfg.service(update_user);
-    cfg.service(delete_user); */
+    cfg.service(get_channel_by_custom_url);
+    cfg.service(get_channel_by_username);
     cfg.service(get_all_channels);
     cfg.service(get_channel_by_id);
 }

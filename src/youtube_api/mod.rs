@@ -84,6 +84,8 @@ impl YoutubeApi {
         channel_url: &String,
         client: &reqwest::Client,
     ) -> Result<Channel, reqwest::Error> {
+        let current_time: chrono::DateTime<Utc> = Utc::now();
+
         let channel_identifier: String;
         let mut channel_identifier_is_id = false;
 
@@ -93,15 +95,51 @@ impl YoutubeApi {
         } else {
             //channel_identifier = channel_url.split("/c/").last().unwrap().to_string();
 
-            let body = reqwest::get(channel_url.to_owned() + &"/videos".to_string()).await.unwrap().text().await.unwrap();
+            let response_channel_page =
+                reqwest::get(channel_url.to_owned() + &"/videos".to_string())
+                    .await
+                    .unwrap();
 
-            let re = Regex::new("(canonical\" href=\"https://www.youtube.com/channel/)[^\"]*").unwrap();
+            if response_channel_page.status() == 404 {
+                return Ok(Channel::new(
+                    "".to_string(),
+                    "".to_string(),
+                    "".to_string(),
+                    "".to_string(),
+                    "".to_string(),
+                    "".to_string(),
+                    "".to_string(),
+                    0,
+                    Vec::new(),
+                    "".to_string(),
+                    "".to_string(),
+                    false,
+                    "".to_string(),
+                    Vec::new(),
+                    "".to_string(),
+                    bson::DateTime::from_chrono(current_time),
+                    0,
+                    "".to_string(),
+                ));
+            }
+
+            let body = response_channel_page.text().await.unwrap();
+
+            let re =
+                Regex::new("(canonical\" href=\"https://www.youtube.com/channel/)[^\"]*").unwrap();
 
             let caps = re.captures(body.as_str()).unwrap();
 
-            channel_identifier = caps.get(0).unwrap().as_str().split("/channel/").last().unwrap().to_string();
+            channel_identifier = caps
+                .get(0)
+                .unwrap()
+                .as_str()
+                .split("/channel/")
+                .last()
+                .unwrap()
+                .to_string();
 
-            println!("{}", channel_identifier);
+            //println!("{}", channel_identifier);
         }
         // https://blog.logrocket.com/making-http-requests-rust-reqwest/
 
@@ -143,6 +181,33 @@ impl YoutubeApi {
                 let parsed_response: serde_json::Value =
                     serde_json::from_str(&response.to_string()).unwrap();
 
+                if parsed_response["pageInfo"]["totalResults"]
+                    .as_u64()
+                    .unwrap()
+                    == 0
+                {
+                    return Ok(Channel::new(
+                        "".to_string(),
+                        "".to_string(),
+                        "".to_string(),
+                        "".to_string(),
+                        "".to_string(),
+                        "".to_string(),
+                        "".to_string(),
+                        0,
+                        Vec::new(),
+                        "".to_string(),
+                        "".to_string(),
+                        false,
+                        "".to_string(),
+                        Vec::new(),
+                        "".to_string(),
+                        bson::DateTime::from_chrono(current_time),
+                        0,
+                        "".to_string(),
+                    ));
+                }
+
                 let subscriber_count_string = parsed_response["items"][0]["statistics"]
                     ["subscriberCount"]
                     .to_string()
@@ -168,8 +233,6 @@ impl YoutubeApi {
                     ));
                     i = i + 1;
                 }
-
-                let current_time: chrono::DateTime<Utc> = Utc::now();
 
                 let mut channel_videos_count = parsed_response["items"][0]["statistics"]
                     ["videoCount"]
@@ -248,7 +311,11 @@ impl YoutubeApi {
         }
     }
 
-    pub async fn add_playlist_videos(channel: &Channel, client: &reqwest::Client, app_data: &web::Data<crate::AppState>) {
+    pub async fn add_playlist_videos(
+        channel: &Channel,
+        client: &reqwest::Client,
+        app_data: &web::Data<crate::AppState>,
+    ) {
         let result_get_all_videos = app_data
             .service_manager
             .youtube_api
@@ -419,14 +486,12 @@ impl YoutubeApi {
                                     .query(&[("video_title", video_title)])
                                     .send()
                                     .await;
-                                    
 
                                 match location_response {
                                     Ok(location_response) => {
                                         let text = location_response.text().await;
                                         let parsed_location_response: serde_json::Value =
-                                            serde_json::from_str(&text.unwrap())
-                                                .unwrap();
+                                            serde_json::from_str(&text.unwrap_or("[{latitude: 'null', longitude: 'null'}]".to_string())).unwrap();
                                         video_location.latitude = YoutubeApi::rem_first_and_last(
                                             &parsed_location_response[0]["latitude"].to_string(),
                                         )
