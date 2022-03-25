@@ -240,8 +240,8 @@ impl YoutubeApi {
                     .replace('"', "")
                     .parse::<u32>()
                     .unwrap();
-                if channel_videos_count > 20 {
-                    channel_videos_count = 20;
+                if channel_videos_count > 300 {
+                    channel_videos_count = 300;
                 }
 
                 let channel = Channel::new(
@@ -489,9 +489,22 @@ impl YoutubeApi {
 
                                 match location_response {
                                     Ok(location_response) => {
-                                        let text = location_response.text().await;
-                                        let parsed_location_response: serde_json::Value =
-                                            serde_json::from_str(&text.unwrap_or("[{latitude: 'null', longitude: 'null'}]".to_string())).unwrap();
+                                        let parsed_location_response: serde_json::Value;
+                                        let location_response_text: String;
+                                        if location_response.status() == 200 {
+                                            location_response_text = location_response.text().await.unwrap();
+                                            parsed_location_response = serde_json::from_str(&location_response_text).unwrap();
+                                        }else{
+                                            let fallback_json = r#"
+                                            [
+                                                {
+                                                    "latitude": "null",
+                                                    "longitude": "null"
+                                                }
+                                            ]"#;
+                                            parsed_location_response = serde_json::from_str(fallback_json).unwrap();
+                                        }
+                                       
                                         video_location.latitude = YoutubeApi::rem_first_and_last(
                                             &parsed_location_response[0]["latitude"].to_string(),
                                         )
