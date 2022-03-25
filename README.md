@@ -1,4 +1,4 @@
-# Youtube Map Backend (Rust, Youtube API, MongoDB)
+# Youtube Map Backend (Rust, Youtube API, MongoDB) (work-in-progress)
 - Backend for [this Next-App](https://github.com/adeveloper-wq/youtube-map-frontend)
 - Given a Youtube Channel (by username or channelID) this backend calls the Youtube API to get the latest videos from the channel
 - It saves the data in a MongoDB database --> for future requests there is no need to call the Youtube API again (stay below rate limits, faster)
