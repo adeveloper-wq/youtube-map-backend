@@ -234,11 +234,15 @@ impl ApiService {
         &self,
         _videos: &Vec<Video>,
         _channel_id: &String,
+        advanced_location_search: &bool
     ) -> Result<UpdateResult, Error> {
         //let object_param = bson::oid::ObjectId::parse_str(_param).unwrap();
-
+        let mut status = "IDLE_SUCCESS";
+        if !advanced_location_search{
+            status = "IDLE_BAD";
+        }
         self.collection
-            .update_one(doc! { "channel_id": _channel_id }, doc!{"$set": doc! {"channel_videos": bson::to_bson(&_videos).unwrap(), "status": "IDLE", "last_updated": bson::DateTime::from_chrono(Utc::now())} }, None)
+            .update_one(doc! { "channel_id": _channel_id }, doc!{"$set": doc! {"channel_videos": bson::to_bson(&_videos).unwrap(), "status": status, "last_updated": bson::DateTime::from_chrono(Utc::now())} }, None)
             .await
     }
 

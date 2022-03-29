@@ -11,7 +11,7 @@ use reqwest;
 use reqwest::header::ACCEPT;
 use reqwest::header::CONTENT_TYPE;
 use serde::{Deserialize, Serialize};
-use serde_json::{self, Value};
+use serde_json::{self, Value, json};
 use std::time::{SystemTime, UNIX_EPOCH};
 use url::{ParseError, Url};
 
@@ -316,7 +316,7 @@ impl YoutubeApi {
         client: &reqwest::Client,
         app_data: &web::Data<crate::AppState>,
     ) {
-        let result_get_all_videos = app_data
+        let (result_get_all_videos, advanced_location_search) = app_data
             .service_manager
             .youtube_api
             .get_playlist_videos(
@@ -324,6 +324,9 @@ impl YoutubeApi {
                 "FIRST_PAGE".to_string(),
                 channel.video_count,
                 &client,
+                0,
+                true,
+                &channel.channel_name
             )
             .await;
 
@@ -332,7 +335,7 @@ impl YoutubeApi {
                 let action = app_data
                     .service_manager
                     .api
-                    .update_videos(&result_get_all_videos, &channel.channel_id)
+                    .update_videos(&result_get_all_videos, &channel.channel_id, &advanced_location_search)
                     .await;
                 /* let result_mongodb_update = web::block(move || action).await; */
                 /* match result_mongodb_update {
@@ -358,7 +361,10 @@ impl YoutubeApi {
         page_token: String,
         mut open_video_amount: u32,
         client: &reqwest::Client,
-    ) -> Result<Vec<Video>, reqwest::Error> {
+        mut failed_locations_count: u32,
+        mut advanced_location_search: bool,
+        channel_name: &String
+    ) -> (Result<Vec<Video>, reqwest::Error>, bool) {
         let mut max_results: u32 = 50;
         if open_video_amount <= max_results {
             max_results = open_video_amount;
@@ -465,6 +471,12 @@ impl YoutubeApi {
 
                             let video_title_clean = YoutubeApi::rem_first_and_last(&video_title);
 
+                            let default_audio_language = YoutubeApi::rem_first_and_last(
+                                &parsed_video_details_response["items"][i]["snippet"]
+                                    ["defaultAudioLanguage"]
+                                    .to_string(),
+                            ).to_string();
+
                             let latitude = YoutubeApi::rem_first_and_last(
                                 &parsed_video_details_response["items"][i]["recordingDetails"]
                                     ["location"]["latitude"]
@@ -483,7 +495,7 @@ impl YoutubeApi {
                                     .get("http://localhost:80/coordinates/")
                                     .header(CONTENT_TYPE, "application/json")
                                     .header(ACCEPT, "application/json")
-                                    .query(&[("video_title", video_title)])
+                                    .query(&[("video_title", video_title.replace(channel_name, "")), ("advanced_location_search", advanced_location_search.to_string()), ("language", default_audio_language.to_owned())])
                                     .send()
                                     .await;
 
@@ -495,6 +507,7 @@ impl YoutubeApi {
                                             location_response_text = location_response.text().await.unwrap();
                                             parsed_location_response = serde_json::from_str(&location_response_text).unwrap();
                                         }else{
+                                            failed_locations_count = failed_locations_count + 1;
                                             let fallback_json = r#"
                                             [
                                                 {
@@ -513,9 +526,19 @@ impl YoutubeApi {
                                             &parsed_location_response[0]["longitude"].to_string(),
                                         )
                                         .to_string();
+
+                                        if video_location.latitude == "null" {
+                                            failed_locations_count = failed_locations_count + 1;
+                                        }else if failed_locations_count < 10 {
+                                            failed_locations_count = 0;
+                                        }
+
+                                        if failed_locations_count >= 10 {
+                                            advanced_location_search = false;
+                                        }
                                     }
                                     Err(e) => {
-                                        return Err(e);
+                                        return (Err(e), advanced_location_search);
                                     }
                                 }
                             } else {
@@ -578,12 +601,7 @@ impl YoutubeApi {
                                         .to_string(),
                                 )
                                 .to_string(),
-                                YoutubeApi::rem_first_and_last(
-                                    &parsed_video_details_response["items"][i]["snippet"]
-                                        ["defaultAudioLanguage"]
-                                        .to_string(),
-                                )
-                                .to_string(),
+                                default_audio_language,
                                 topic_vector,
                                 video_location,
                                 YoutubeApi::rem_first_and_last(
@@ -597,39 +615,42 @@ impl YoutubeApi {
                             i = i + 1;
                         }
                         if open_video_amount == 0 {
-                            return Ok(videos);
+                            return (Ok(videos), advanced_location_search);
                         } else {
                             let next_page_token = parsed_response["nextPageToken"].as_str();
 
                             if next_page_token != None {
-                                let further_request = YoutubeApi::get_playlist_videos(
+                                let (further_request, advanced_location_search2) = YoutubeApi::get_playlist_videos(
                                     &self,
                                     playlist_id,
                                     next_page_token.unwrap().to_string(),
                                     open_video_amount,
                                     &client,
+                                    failed_locations_count,
+                                    advanced_location_search,
+                                    channel_name
                                 )
                                 .await;
 
                                 match further_request {
                                     Ok(mut response2) => {
                                         videos.append(&mut response2);
-                                        return Ok(videos);
+                                        return (Ok(videos), advanced_location_search2);
                                     }
                                     Err(e2) => {
-                                        return Err(e2);
+                                        return (Err(e2), advanced_location_search2);
                                     }
                                 }
                             } else {
-                                return Ok(videos);
+                                return (Ok(videos), advanced_location_search);
                             }
                         }
                     }
-                    Err(e) => return Err(e),
+                    Err(e) => return (Err(e), advanced_location_search),
                 }
             }
             Err(e) => {
-                return Err(e);
+                return (Err(e), advanced_location_search);
             }
         }
     }
