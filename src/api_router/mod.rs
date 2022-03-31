@@ -1,11 +1,111 @@
 use crate::{
-    api_service::{AddChannelRequestBody, Channel},
+    api_service::{Channel},
     youtube_api::YoutubeApi,
 };
 use actix::Arbiter;
-use actix_web::{get, post, web, HttpResponse, Responder};
-use futures::TryFutureExt;
+use actix_web::{get, web, HttpResponse, Responder};
+use bson::DateTime;
+use chrono::Utc;
 use regex::Regex;
+
+fn was_in_the_last_7_days(last_updated: DateTime) -> bool {
+    let current_date_time: chrono::DateTime<Utc> = Utc::now();
+    let last_updated_date_time: chrono::DateTime<Utc> = last_updated.to_chrono();
+    let difference_in_days = current_date_time.signed_duration_since(last_updated_date_time);
+    difference_in_days.num_days() <= 7
+}
+
+async fn get_channel_id(channel_url: String) -> String {
+    let response_channel_page = reqwest::get(channel_url.to_owned() + &"/videos".to_string())
+        .await
+        .unwrap();
+
+    if response_channel_page.status() == 404 {
+        return "".to_string();
+    }
+
+    let body = response_channel_page.text().await.unwrap();
+
+    let re = Regex::new("(canonical\" href=\"https://www.youtube.com/channel/)[^\"]*").unwrap();
+
+    let caps = re.captures(body.as_str()).unwrap();
+
+    let channel_identifier = caps
+        .get(0)
+        .unwrap()
+        .as_str()
+        .split("/channel/")
+        .last()
+        .unwrap()
+        .to_string();
+
+    return channel_identifier;
+}
+
+async fn get_channel_from_youtube(
+    channel_id: String,
+    app_data: web::Data<crate::AppState>,
+) -> HttpResponse {
+    let client = reqwest::Client::new();
+    let action = app_data
+        .service_manager
+        .youtube_api
+        .get_channel_data(channel_id.to_string(), &client)
+        .await;
+    let result = web::block(move || action).await;
+    match result {
+        Ok(result_channel) => {
+            let channel_ref = result_channel.as_ref().unwrap();
+            /* let channel = result_channel.unwrap(); */
+            if channel_ref.channel_name == "" {
+                return HttpResponse::NotFound().finish();
+            }
+
+            let channel2 = channel_ref.clone();
+            let channel3 = channel_ref.clone();
+            let app_data2 = app_data.clone();
+
+            let channel = result_channel.unwrap();
+
+            let action = app_data.service_manager.api.create(&channel).await;
+            let result_mongodb_update = web::block(move || action).await;
+            match result_mongodb_update {
+                Ok(result_mongodb_update) => {
+                    /* Check for matched_count == 0 because for adding the channel to the database the upsert function is
+                    used which doesnt add the channel if it is already in the database, if it is in the database the
+                    match count is greater than 0 and thus no channels have to be crawled at this point  */
+                    if result_mongodb_update.unwrap().matched_count == (0 as u64) {
+                        let arbiter = Arbiter::new();
+                        arbiter.spawn(async move {
+                            YoutubeApi::add_playlist_videos(&channel2, &client, &app_data2).await
+                        });
+                    }
+                    let action = app_data
+                        .service_manager
+                        .api
+                        .get_channel_by_id(&channel3.channel_id)
+                        .await;
+                    let result = web::block(move || action).await;
+                    match result {
+                        Ok(result) => HttpResponse::Ok().json(result.unwrap()),
+                        Err(e) => {
+                            println!("Error while getting, {:?}", e);
+                            HttpResponse::InternalServerError().finish()
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("Error while getting, {:?}", e);
+                    return HttpResponse::InternalServerError().finish();
+                }
+            }
+        }
+        Err(e) => {
+            println!("Error while getting, {:?}", e);
+            HttpResponse::InternalServerError().finish()
+        }
+    }
+}
 
 #[get("/")]
 async fn get_all_channels(app_data: web::Data<crate::AppState>) -> impl Responder {
@@ -48,7 +148,23 @@ async fn get_channel_by_id(
     let action = app_data.service_manager.api.get_channel_by_id(&param).await;
     let result = web::block(move || action).await;
     match result {
-        Ok(result) => HttpResponse::Ok().json(result.unwrap()),
+        Ok(result) => {
+            let channel_doc = result.unwrap();
+            if channel_doc.is_empty() {
+                let response = get_channel_from_youtube(param.to_string(), app_data).await;
+                return response;
+            } else {
+                let channel_struct: Channel = bson::from_document(channel_doc.clone()).unwrap();
+                if was_in_the_last_7_days(channel_struct.last_updated){
+                    let client = reqwest::Client::new();
+                    let arbiter = Arbiter::new();
+                    arbiter.spawn(async move {
+                        YoutubeApi::add_playlist_videos(&channel_struct, &client, &app_data).await
+                    });
+                }
+                HttpResponse::Ok().json(channel_doc)
+            }
+        }
         Err(e) => {
             println!("Error while getting, {:?}", e);
             HttpResponse::InternalServerError().finish()
@@ -68,7 +184,28 @@ async fn get_channel_by_custom_url(
         .await;
     let result = web::block(move || action).await;
     match result {
-        Ok(result) => HttpResponse::Ok().json(result.unwrap()),
+        Ok(result) => {
+            let channel_doc = result.unwrap();
+            if channel_doc.is_empty() {
+                let channel_id =
+                    get_channel_id("https://www.youtube.com/c/".to_string() + &param).await;
+                if channel_id == "".to_string() {
+                    return HttpResponse::NotFound().finish();
+                }
+                let response = get_channel_from_youtube(channel_id, app_data).await;
+                return response;
+            } else {
+                let channel_struct: Channel = bson::from_document(channel_doc.clone()).unwrap();
+                if was_in_the_last_7_days(channel_struct.last_updated){
+                    let client = reqwest::Client::new();
+                    let arbiter = Arbiter::new();
+                    arbiter.spawn(async move {
+                        YoutubeApi::add_playlist_videos(&channel_struct, &client, &app_data).await
+                    });
+                }
+                HttpResponse::Ok().json(channel_doc)
+            }
+        }
         Err(e) => {
             println!("Error while getting, {:?}", e);
             HttpResponse::InternalServerError().finish()
@@ -81,30 +218,10 @@ async fn get_channel_by_username(
     app_data: web::Data<crate::AppState>,
     param: web::Path<String>,
 ) -> impl Responder {
-    let response_channel_page = reqwest::get(
-        "https://www.youtube.com/".to_string() + &param.to_string() + &"/videos".to_string(),
-    )
-    .await
-    .unwrap();
-
-    if response_channel_page.status() == 404 {
+    let channel_id = get_channel_id("https://www.youtube.com/".to_string() + &param).await;
+    if channel_id == "".to_string() {
         return HttpResponse::NotFound().finish();
     }
-
-    let body = response_channel_page.text().await.unwrap();
-
-    let re = Regex::new("(canonical\" href=\"https://www.youtube.com/channel/)[^\"]*").unwrap();
-
-    let caps = re.captures(body.as_str()).unwrap();
-
-    let channel_id = caps
-        .get(0)
-        .unwrap()
-        .as_str()
-        .split("/channel/")
-        .last()
-        .unwrap()
-        .to_string();
 
     let action = app_data
         .service_manager
@@ -113,171 +230,32 @@ async fn get_channel_by_username(
         .await;
     let result = web::block(move || action).await;
     match result {
-        Ok(result) => HttpResponse::Ok().json(result.unwrap()),
-        Err(e) => {
-            println!("Error while getting, {:?}", e);
-            HttpResponse::InternalServerError().finish()
-        }
-    }
-}
-
-#[post("/channel")]
-async fn add_channel(
-    app_data: web::Data<crate::AppState>,
-    data: web::Json<AddChannelRequestBody>,
-) -> impl Responder {
-    let channel_url = data.channel_url.trim().replace("/videos", "");
-    let url_check_result = app_data
-        .service_manager
-        .youtube_api
-        .check_url(&channel_url.to_string());
-    match url_check_result {
-        Ok(url_check_result_youtube_url) => {
-            if (url_check_result_youtube_url) {
-                let client = reqwest::Client::new();
-                let action = app_data
-                    .service_manager
-                    .youtube_api
-                    .get_channel_data(&channel_url.to_string(), &client)
-                    .await;
-                let result = web::block(move || action).await;
-                match result {
-                    Ok(result_channel) => {
-                        let channel_ref = result_channel.as_ref().unwrap();
-                        /* let channel = result_channel.unwrap(); */
-                        if channel_ref.channel_name == "" {
-                            return HttpResponse::NotFound().finish();
-                        }
-
-                        let channel2 = channel_ref.clone();
-                        let channel3 = channel_ref.clone();
-                        let app_data2 = app_data.clone();
-
-                        let arbiter = Arbiter::new();
-
-                        /*  Arbiter::spawn(async {
-                            app_data.service_manager.youtube_api.add_playlist_videos(channel_ref, &client, &app_data);
-                            /* let result_get_all_videos = app_data
-                                .service_manager
-                                .youtube_api
-                                .get_playlist_videos(
-                                    &channel_ref.channel_uploads_playlist_id,
-                                    "FIRST_PAGE".to_string(),
-                                    channel_ref.video_count,
-                                    &client,
-                                )
-                                .await;
-
-                            match result_get_all_videos {
-                                Ok(result_get_all_videos) => {
-                                    let action =
-                                        app_data.service_manager.api.update_videos(&result_get_all_videos, &channel_ref.channel_id).await;
-                                    let result_mongodb_update = web::block(move || action).await;
-                                    /* match result_mongodb_update {
-                                        Ok(result_mongodb_update) => {
-
-                                        }
-                                        Err(e) => {
-                                            println!("Error while getting, {:?}", e);
-                                        }
-                                    } */
-                                }
-                                /* Err(e) => {
-                                    println!("Error while getting, {:?}", e);
-                                    return HttpResponse::InternalServerError().finish();
-                                } */
-                            } */
-                        }); */
-
-                        let channel = result_channel.unwrap();
-
-                        let action = app_data.service_manager.api.create(&channel).await;
-                        let result_mongodb_update = web::block(move || action).await;
-                        match result_mongodb_update {
-                            Ok(result_mongodb_update) => {
-                                if result_mongodb_update.unwrap().matched_count == (0 as u64) {
-                                    arbiter.spawn(async move {
-                                        YoutubeApi::add_playlist_videos(
-                                            &channel2, &client, &app_data2,
-                                        )
-                                        .await
-                                    });
-                                }
-                                let action = app_data
-                                    .service_manager
-                                    .api
-                                    .get_channel_by_id(&channel3.channel_id)
-                                    .await;
-                                let result = web::block(move || action).await;
-                                match result {
-                                    Ok(result) => HttpResponse::Ok().json(result.unwrap()),
-                                    Err(e) => {
-                                        println!("Error while getting, {:?}", e);
-                                        HttpResponse::InternalServerError().finish()
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                println!("Error while getting, {:?}", e);
-                                return HttpResponse::InternalServerError().finish();
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        println!("Error while getting, {:?}", e);
-                        HttpResponse::InternalServerError().finish()
-                    }
-                }
+        Ok(result) => {
+            let channel_doc = result.unwrap();
+            if channel_doc.is_empty() {
+                let response = get_channel_from_youtube(channel_id, app_data).await;
+                return response;
             } else {
-                HttpResponse::BadRequest().finish()
+                let channel_struct: Channel = bson::from_document(channel_doc.clone()).unwrap();
+                if was_in_the_last_7_days(channel_struct.last_updated){
+                    let client = reqwest::Client::new();
+                    let arbiter = Arbiter::new();
+                    arbiter.spawn(async move {
+                        YoutubeApi::add_playlist_videos(&channel_struct, &client, &app_data).await
+                    });
+                }
+                HttpResponse::Ok().json(channel_doc)
             }
         }
         Err(e) => {
-            println!("Error while parsing, {:?}", e);
-            HttpResponse::BadRequest().finish()
-        }
-    }
-
-    /* let action = app_data.service_manager.api.create(&data).await;
-    let result = web::block(move || action).await;
-    match result {
-        Ok(result) => HttpResponse::Ok().json(result.unwrap()),
-        Err(e) => {
             println!("Error while getting, {:?}", e);
             HttpResponse::InternalServerError().finish()
         }
-    } */
+    }
 }
-
-/* #[post("/update/{param}")]
-async fn update_user(app_data: web::Data<crate::AppState>, data: web::Json<Channel>, param: web::Path<String>) -> impl Responder {
-    let action = app_data.service_manager.api.update(&data, &param).await;
-    let result = web::block(move || action).await;
-    match result {
-        Ok(result) => HttpResponse::Ok().json(result.unwrap()),
-        Err(e) => {
-            println!("Error while getting, {:?}", e);
-            HttpResponse::InternalServerError().finish()
-        }
-    }
-} */
-
-/* #[delete("/delete")]
-async fn delete_user(app_data: web::Data<crate::AppState>, data: web::Json<Channel>) -> impl Responder {
-    let action = app_data.service_manager.api.delete(&data.channel_id).await;
-    let result = web::block(move || action).await;
-    match result {
-        Ok(result) => HttpResponse::Ok().json(result.unwrap()),
-        Err(e) => {
-            println!("Error while getting, {:?}", e);
-            HttpResponse::InternalServerError().finish()
-        }
-    }
-} */
 
 // function that will be called on new Application to configure routes for this module
 pub fn init(cfg: &mut web::ServiceConfig) {
-    cfg.service(add_channel);
     cfg.service(channel_search);
     cfg.service(get_channel_by_custom_url);
     cfg.service(get_channel_by_username);

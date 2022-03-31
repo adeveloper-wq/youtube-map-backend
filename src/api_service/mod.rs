@@ -246,29 +246,6 @@ impl ApiService {
             .await
     }
 
-    /* // Delete some document
-    pub async fn delete(&self, _channel_id: &String) -> Result<DeleteResult, Error> {
-        self.collection
-            .delete_one(doc! { "channel_id": _channel_id }, None)
-            .await
-    } */
-
-    // Update videos of channel
-    /* pub async fn update(
-        &self,
-        _videos: &Vec<Video>,
-        _channel_id: &String,
-    ) -> Result<UpdateResult, Error> {
-
-        self.collection
-            .update_one(
-                doc! { "channel_id": _channel_id },
-                doc! { "$set": { "videos": bson::to_bson(_videos).unwrap(), "status": "FINISHED" }},
-                None,
-            )
-            .await
-    } */
-
     // Get all documents
     pub async fn get_all_channels(
         &self,
@@ -313,11 +290,6 @@ impl ApiService {
             Ok(cursor) => cursor,
             Err(error) => return Err(error),
         };
-        /*         let mut docs: Vec<bson::Document> = Vec::new();
-        while let Some(doc) = cursor.next().await {
-            docs.push(doc.unwrap());
-        } */
-        //let _serialized = serde_json::to_string(&cursor.unwrap()).unwrap();
 
         Ok(cursor.unwrap_or(Document::new()))
     }
@@ -335,11 +307,6 @@ impl ApiService {
             Ok(cursor) => cursor,
             Err(error) => return Err(error),
         };
-        /*         let mut docs: Vec<bson::Document> = Vec::new();
-        while let Some(doc) = cursor.next().await {
-            docs.push(doc.unwrap());
-        } */
-        //let _serialized = serde_json::to_string(&cursor.unwrap()).unwrap();
 
         Ok(cursor.unwrap_or(Document::new()))
     }
@@ -357,11 +324,6 @@ impl ApiService {
             Ok(cursor) => cursor,
             Err(error) => return Err(error),
         };
-        /*         let mut docs: Vec<bson::Document> = Vec::new();
-        while let Some(doc) = cursor.next().await {
-            docs.push(doc.unwrap());
-        } */
-        //let _serialized = serde_json::to_string(&cursor.unwrap()).unwrap();
 
         Ok(cursor.unwrap_or(Document::new()))
     }

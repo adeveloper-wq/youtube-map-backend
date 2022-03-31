@@ -11,7 +11,7 @@ use reqwest;
 use reqwest::header::ACCEPT;
 use reqwest::header::CONTENT_TYPE;
 use serde::{Deserialize, Serialize};
-use serde_json::{self, Value, json};
+use serde_json::{self, json, Value};
 use std::time::{SystemTime, UNIX_EPOCH};
 use url::{ParseError, Url};
 
@@ -81,101 +81,26 @@ impl YoutubeApi {
     // Get Channel data by URL
     pub async fn get_channel_data(
         &self,
-        channel_url: &String,
+        channel_id: String,
         client: &reqwest::Client,
     ) -> Result<Channel, reqwest::Error> {
         let current_time: chrono::DateTime<Utc> = Utc::now();
 
-        let channel_identifier: String;
-        let mut channel_identifier_is_id = false;
-
-        if (channel_url.contains("/channel/")) {
-            channel_identifier_is_id = true;
-            channel_identifier = channel_url.split("/channel/").last().unwrap().to_string();
-        } else {
-            //channel_identifier = channel_url.split("/c/").last().unwrap().to_string();
-
-            let response_channel_page =
-                reqwest::get(channel_url.to_owned() + &"/videos".to_string())
-                    .await
-                    .unwrap();
-
-            if response_channel_page.status() == 404 {
-                return Ok(Channel::new(
-                    "".to_string(),
-                    "".to_string(),
-                    "".to_string(),
-                    "".to_string(),
-                    "".to_string(),
-                    "".to_string(),
-                    "".to_string(),
-                    0,
-                    Vec::new(),
-                    "".to_string(),
-                    "".to_string(),
-                    false,
-                    "".to_string(),
-                    Vec::new(),
-                    "".to_string(),
-                    bson::DateTime::from_chrono(current_time),
-                    0,
-                    "".to_string(),
-                ));
-            }
-
-            let body = response_channel_page.text().await.unwrap();
-
-            let re =
-                Regex::new("(canonical\" href=\"https://www.youtube.com/channel/)[^\"]*").unwrap();
-
-            let caps = re.captures(body.as_str()).unwrap();
-
-            channel_identifier = caps
-                .get(0)
-                .unwrap()
-                .as_str()
-                .split("/channel/")
-                .last()
-                .unwrap()
-                .to_string();
-
-            //println!("{}", channel_identifier);
-        }
-        // https://blog.logrocket.com/making-http-requests-rust-reqwest/
-
-        let response: Result<String, reqwest::Error>;
-
-        if true {
-            response = client
+        let response = client
                 .get("https://youtube.googleapis.com/youtube/v3/channels")
                 .header(CONTENT_TYPE, "application/json")
                 .header(ACCEPT, "application/json")
                 .query(&[
                     ("part", "contentDetails,brandingSettings,contentOwnerDetails,localizations,snippet,statistics,status,topicDetails".to_string()),
                     ("key", self.api_key.to_string()),
-                    ("id", channel_identifier)
+                    ("id", channel_id)
                 ])
                 .send()
                 .await
                 .unwrap()
                 .text()
                 .await;
-        } else {
-            response = client
-                .get("https://youtube.googleapis.com/youtube/v3/channels")
-                .header(CONTENT_TYPE, "application/json")
-                .header(ACCEPT, "application/json")
-                .query(&[
-                    ("part", "contentDetails,brandingSettings,contentOwnerDetails,localizations,snippet,statistics,status,topicDetails".to_string()),
-                    ("key", self.api_key.to_string()),
-                    ("forUsername", channel_identifier)
-                ])
-                .send()
-                .await
-                .unwrap()
-                .text()
-                .await;
-        }
+
         match response {
             Ok(response) => {
                 let parsed_response: serde_json::Value =
@@ -326,7 +251,7 @@ impl YoutubeApi {
                 &client,
                 0,
                 true,
-                &channel.channel_name
+                &channel.channel_name,
             )
             .await;
 
@@ -335,21 +260,15 @@ impl YoutubeApi {
                 let action = app_data
                     .service_manager
                     .api
-                    .update_videos(&result_get_all_videos, &channel.channel_id, &advanced_location_search)
+                    .update_videos(
+                        &result_get_all_videos,
+                        &channel.channel_id,
+                        &advanced_location_search,
+                    )
                     .await;
-                /* let result_mongodb_update = web::block(move || action).await; */
-                /* match result_mongodb_update {
-                    Ok(result_mongodb_update) => {
-
-                    }
-                    Err(e) => {
-                        println!("Error while getting, {:?}", e);
-                    }
-                } */
             }
             Err(e) => {
                 println!("Error while getting, {:?}", e);
-                /* return HttpResponse::InternalServerError().finish(); */
             }
         }
     }
@@ -363,7 +282,7 @@ impl YoutubeApi {
         client: &reqwest::Client,
         mut failed_locations_count: u32,
         mut advanced_location_search: bool,
-        channel_name: &String
+        channel_name: &String,
     ) -> (Result<Vec<Video>, reqwest::Error>, bool) {
         let mut max_results: u32 = 50;
         if open_video_amount <= max_results {
@@ -475,7 +394,8 @@ impl YoutubeApi {
                                 &parsed_video_details_response["items"][i]["snippet"]
                                     ["defaultAudioLanguage"]
                                     .to_string(),
-                            ).to_string();
+                            )
+                            .to_string();
 
                             let latitude = YoutubeApi::rem_first_and_last(
                                 &parsed_video_details_response["items"][i]["recordingDetails"]
@@ -495,7 +415,14 @@ impl YoutubeApi {
                                     .get("http://localhost:80/coordinates/")
                                     .header(CONTENT_TYPE, "application/json")
                                     .header(ACCEPT, "application/json")
-                                    .query(&[("video_title", video_title.replace(channel_name, "")), ("advanced_location_search", advanced_location_search.to_string()), ("language", default_audio_language.to_owned())])
+                                    .query(&[
+                                        ("video_title", video_title.replace(channel_name, "")),
+                                        (
+                                            "advanced_location_search",
+                                            advanced_location_search.to_string(),
+                                        ),
+                                        ("language", default_audio_language.to_owned()),
+                                    ])
                                     .send()
                                     .await;
 
@@ -504,9 +431,12 @@ impl YoutubeApi {
                                         let parsed_location_response: serde_json::Value;
                                         let location_response_text: String;
                                         if location_response.status() == 200 {
-                                            location_response_text = location_response.text().await.unwrap();
-                                            parsed_location_response = serde_json::from_str(&location_response_text).unwrap();
-                                        }else{
+                                            location_response_text =
+                                                location_response.text().await.unwrap();
+                                            parsed_location_response =
+                                                serde_json::from_str(&location_response_text)
+                                                    .unwrap();
+                                        } else {
                                             failed_locations_count = failed_locations_count + 1;
                                             let fallback_json = r#"
                                             [
@@ -515,9 +445,10 @@ impl YoutubeApi {
                                                     "longitude": "null"
                                                 }
                                             ]"#;
-                                            parsed_location_response = serde_json::from_str(fallback_json).unwrap();
+                                            parsed_location_response =
+                                                serde_json::from_str(fallback_json).unwrap();
                                         }
-                                       
+
                                         video_location.latitude = YoutubeApi::rem_first_and_last(
                                             &parsed_location_response[0]["latitude"].to_string(),
                                         )
@@ -529,7 +460,7 @@ impl YoutubeApi {
 
                                         if video_location.latitude == "null" {
                                             failed_locations_count = failed_locations_count + 1;
-                                        }else if failed_locations_count < 10 {
+                                        } else if failed_locations_count < 10 {
                                             failed_locations_count = 0;
                                         }
 
@@ -555,21 +486,6 @@ impl YoutubeApi {
                                         .to_string(),
                                 )
                                 .to_string();
-                                /* video_location = Location::new(
-                                    latitude,
-                                    YoutubeApi::rem_first_and_last(
-                                        &parsed_video_details_response["items"][i]
-                                            ["recordingDetails"]["location"]["longitude"]
-                                            .to_string(),
-                                    )
-                                    .to_string(),
-                                    YoutubeApi::rem_first_and_last(
-                                        &parsed_video_details_response["items"][i]
-                                            ["recordingDetails"]["locationDescription"]
-                                            .to_string(),
-                                    )
-                                    .to_string(),
-                                ); */
                             }
 
                             videos.push(Video::new(
@@ -578,11 +494,6 @@ impl YoutubeApi {
                                 )
                                 .to_string(),
                                 video_title_clean.to_string(),
-                                /*    YoutubeApi::rem_first_and_last(&
-                                    parsed_video_details_response["items"][i]["snippet"]
-                                        ["description"]
-                                        .to_string(),
-                                ).to_string(), */
                                 YoutubeApi::rem_first_and_last(
                                     &parsed_video_details_response["items"][i]["snippet"]
                                         ["publishedAt"]
@@ -620,17 +531,18 @@ impl YoutubeApi {
                             let next_page_token = parsed_response["nextPageToken"].as_str();
 
                             if next_page_token != None {
-                                let (further_request, advanced_location_search2) = YoutubeApi::get_playlist_videos(
-                                    &self,
-                                    playlist_id,
-                                    next_page_token.unwrap().to_string(),
-                                    open_video_amount,
-                                    &client,
-                                    failed_locations_count,
-                                    advanced_location_search,
-                                    channel_name
-                                )
-                                .await;
+                                let (further_request, advanced_location_search2) =
+                                    YoutubeApi::get_playlist_videos(
+                                        &self,
+                                        playlist_id,
+                                        next_page_token.unwrap().to_string(),
+                                        open_video_amount,
+                                        &client,
+                                        failed_locations_count,
+                                        advanced_location_search,
+                                        channel_name,
+                                    )
+                                    .await;
 
                                 match further_request {
                                     Ok(mut response2) => {
