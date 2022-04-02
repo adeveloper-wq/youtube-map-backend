@@ -71,15 +71,12 @@ async fn get_channel_from_youtube(
             let result_mongodb_update = web::block(move || action).await;
             match result_mongodb_update {
                 Ok(result_mongodb_update) => {
-                    /* Check for matched_count == 0 because for adding the channel to the database the upsert function is
-                    used which doesnt add the channel if it is already in the database, if it is in the database the
-                    match count is greater than 0 and thus no channels have to be crawled at this point  */
-                    if result_mongodb_update.unwrap().matched_count == (0 as u64) {
-                        let arbiter = Arbiter::new();
-                        arbiter.spawn(async move {
-                            YoutubeApi::add_playlist_videos(&channel2, &client, &app_data2).await
-                        });
-                    }
+                    println!("{:?}", result_mongodb_update.unwrap());
+                    let arbiter = Arbiter::new();
+                    arbiter.spawn(async move {
+                        YoutubeApi::add_playlist_videos(&channel2, &client, &app_data2).await
+                    });
+              
                     let action = app_data
                         .service_manager
                         .api
@@ -155,12 +152,9 @@ async fn get_channel_by_id(
                 return response;
             } else {
                 let channel_struct: Channel = bson::from_document(channel_doc.clone()).unwrap();
-                if was_in_the_last_7_days(channel_struct.last_updated){
-                    let client = reqwest::Client::new();
-                    let arbiter = Arbiter::new();
-                    arbiter.spawn(async move {
-                        YoutubeApi::add_playlist_videos(&channel_struct, &client, &app_data).await
-                    });
+                if !was_in_the_last_7_days(channel_struct.last_updated) && channel_struct.status != "LOADING" && channel_struct.status != "UPDATING"{
+                    let response = get_channel_from_youtube(param.to_string(), app_data).await;
+                    return response;
                 }
                 HttpResponse::Ok().json(channel_doc)
             }
@@ -196,12 +190,14 @@ async fn get_channel_by_custom_url(
                 return response;
             } else {
                 let channel_struct: Channel = bson::from_document(channel_doc.clone()).unwrap();
-                if was_in_the_last_7_days(channel_struct.last_updated){
-                    let client = reqwest::Client::new();
-                    let arbiter = Arbiter::new();
-                    arbiter.spawn(async move {
-                        YoutubeApi::add_playlist_videos(&channel_struct, &client, &app_data).await
-                    });
+                if !was_in_the_last_7_days(channel_struct.last_updated)  && channel_struct.status != "LOADING" && channel_struct.status != "UPDATING" {
+                    let channel_id =
+                        get_channel_id("https://www.youtube.com/c/".to_string() + &param).await;
+                    if channel_id == "".to_string() {
+                        return HttpResponse::NotFound().finish();
+                    }
+                    let response = get_channel_from_youtube(channel_id, app_data).await;
+                    return response;
                 }
                 HttpResponse::Ok().json(channel_doc)
             }
@@ -237,12 +233,9 @@ async fn get_channel_by_username(
                 return response;
             } else {
                 let channel_struct: Channel = bson::from_document(channel_doc.clone()).unwrap();
-                if was_in_the_last_7_days(channel_struct.last_updated){
-                    let client = reqwest::Client::new();
-                    let arbiter = Arbiter::new();
-                    arbiter.spawn(async move {
-                        YoutubeApi::add_playlist_videos(&channel_struct, &client, &app_data).await
-                    });
+                if !was_in_the_last_7_days(channel_struct.last_updated) && channel_struct.status != "LOADING" && channel_struct.status != "UPDATING" {
+                    let response = get_channel_from_youtube(channel_id, app_data).await;
+                    return response;
                 }
                 HttpResponse::Ok().json(channel_doc)
             }

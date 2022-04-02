@@ -266,6 +266,14 @@ impl YoutubeApi {
                         &advanced_location_search,
                     )
                     .await;
+                match action {
+                    Ok(action) => {
+                        println!("Videos crawled successfully: {:?}", action);
+                    },
+                    Err(err) => {
+                        println!("Error while saving videos, {:?}", err);
+                    }
+                }
             }
             Err(e) => {
                 println!("Error while getting, {:?}", e);

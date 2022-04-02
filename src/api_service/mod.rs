@@ -187,7 +187,7 @@ fn data_to_document(data: &Channel) -> Document {
         video_count,
         channel_custom_url
     } = data;
-    doc! {"$setOnInsert": doc! {
+    doc! {"$set": doc! {
         "channel_id": channel_id,
         "channel_name": channel_name,
         "channel_description": channel_description,
